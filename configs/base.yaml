@@ -9,7 +9,13 @@ spark:
   master: "local[*]"
   driver_memory: 4g
   shuffle_partitions: 8
-  extra_conf: {}
+  extra_conf:
+    # Clean shuffle files of unreferenced RDDs every minute (default 30 min). Long runs like
+    # the ALS sweep otherwise accumulate GBs of shuffle data in the temp dir.
+    spark.cleaner.periodicGC.interval: 1min
+    # Lets iterative jobs (ALS) truncate lineage so old shuffle files can be released.
+    spark.checkpoint.dir: data/_checkpoints
+    spark.cleaner.referenceTracking.cleanCheckpoints: "true"
 
 ingest:
   events_files: [events.csv]
@@ -44,3 +50,38 @@ features:
   conversion_prior_views: 20
   cooccurrence_window_days: 30
   max_session_items_for_pairs: 50
+
+# Candidate generation (Phase 3). Generated per cutoff for visitors in that cutoff's
+# label window; each source keeps its top_n items per visitor.
+candidates:
+  top_n: 100
+  eval_ks: [10, 20, 50, 100]
+  popularity:
+    window_days: 7
+  category:
+    top_categories: 3
+    half_life_days: 14
+    window_days: 7
+  history:
+    half_life_days: 7
+  cooccurrence:
+    window_days: 60
+    max_session_items: 50
+    min_pair_sessions: 2
+    neighbors_per_item: 50
+    seed_items: 20
+    seed_half_life_days: 7
+    salt_buckets: 0          # >0 salts the seed x neighbor join (skew experiment, Phase 9)
+  als:
+    # Chosen by the validation sweep (docs/RESULTS.md, Phase 3): rounds 1 + 2.
+    rank: 128
+    reg_param: 0.01
+    alpha: 40.0
+    max_iter: 10
+    min_user_items: 2
+    min_item_users: 2
+    seed: 42
+  als_sweep:
+    rank: [32, 64]
+    reg_param: [0.01, 0.1]
+    alpha: [5.0, 20.0]

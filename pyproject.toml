@@ -8,6 +8,7 @@ dependencies = [
     "pyspark==4.0.*",
     "pyyaml>=6.0",
     "pydantic>=2.7",
+    "numpy>=1.26",
 ]
 
 [dependency-groups]

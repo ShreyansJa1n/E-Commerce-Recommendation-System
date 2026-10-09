@@ -10,6 +10,8 @@ from dataclasses import asdict
 
 from pyspark.sql import SparkSession
 
+from recsys.candidates import pipeline as candidates
+from recsys.candidates import sweep
 from recsys.clean import catalog, events
 from recsys.config import REPO_ROOT, Config, load_config
 from recsys.features import pipeline as features
@@ -24,6 +26,8 @@ STAGES: dict[str, list[Stage]] = {
     "bronze": [raw_to_bronze.run],
     "silver": [events.run, catalog.run],
     "gold": [features.run],
+    "candidates": [candidates.run],
+    "als-sweep": [sweep.run],
 }
 
 

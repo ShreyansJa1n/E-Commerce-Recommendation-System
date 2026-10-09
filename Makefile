@@ -2,7 +2,7 @@
 UV ?= uv
 ENV ?= sample
 
-.PHONY: help setup lint format typecheck test check sample bronze silver gold data contract clean
+.PHONY: help setup lint format typecheck test check sample bronze silver gold candidates als-sweep data contract clean
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-12s %s\n", $$1, $$2}'
@@ -42,7 +42,13 @@ silver: ## Bronze -> silver + validation reports (ENV=sample|base)
 gold: ## Silver -> gold features, labels, cutoffs (ENV=sample|base)
 	$(RUN) gold --env $(ENV)
 
-data: bronze silver gold ## Raw -> gold end to end
+candidates: ## Candidate sources per cutoff + validation metrics (ENV=sample|base)
+	$(RUN) candidates --env $(ENV)
+
+als-sweep: ## ALS hyperparameter sweep on the validation cutoff (ENV=sample|base)
+	$(RUN) als-sweep --env $(ENV)
+
+data: bronze silver gold candidates ## Raw -> candidates end to end
 
 contract: ## Regenerate docs/feature_contract.md from the contract specs
 	$(RUN) contract

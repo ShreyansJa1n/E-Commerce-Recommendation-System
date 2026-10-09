@@ -6,6 +6,7 @@ import pytest
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 
+from recsys.candidates import pipeline as candidates
 from recsys.clean import catalog, events
 from recsys.config import Config
 from recsys.features import contract
@@ -23,6 +24,7 @@ def built(spark: SparkSession, synth_env: tuple[Config, SynthStats]) -> tuple[Co
     events.run(spark, cfg)
     catalog.run(spark, cfg)
     features.run(spark, cfg)
+    candidates.run(spark, cfg)
     return cfg, stats
 
 
@@ -164,3 +166,39 @@ def test_gold_features_only_see_history(
     report = json.loads((gold / "_reports" / "gold_features.json").read_text())
     assert [r["split"] for r in report["extra"]["labels"]] == ["train", "val", "test"]
     assert 0 < report["extra"]["events_with_category_share"] <= 1
+
+
+def test_candidates_written_per_cutoff_and_source(
+    spark: SparkSession, built: tuple[Config, SynthStats]
+) -> None:
+    cfg, _ = built
+    gold = cfg.paths.resolved().gold
+    cands = read_table(spark, gold / "candidates")
+    assert set(cands.columns) == {
+        "visitor_id",
+        "item_id",
+        "score",
+        "rank",
+        "split",
+        "cutoff_date",
+        "source",
+    }
+    sources = {r.source for r in cands.select("source").distinct().collect()}
+    # Co-occurrence can be empty on tiny synthetic data (no pair repeats across sessions);
+    # the run report must still account for every source at every cutoff.
+    assert set(candidates.SOURCES) - {"cooccurrence"} <= sources <= set(candidates.SOURCES)
+    report = json.loads((gold / "_reports" / "candidates.json").read_text())
+    expected_keys = {
+        f"{c}/{s}" for c in ("2015-05-17", "2015-05-24", "2015-05-27") for s in candidates.SOURCES
+    }
+    assert set(report["rows"]) == expected_keys
+    n = cfg.candidates.top_n
+    assert cands.where((F.col("rank") < 1) | (F.col("rank") > n)).count() == 0
+    key = ["cutoff_date", "source", "visitor_id", "item_id"]
+    assert cands.groupBy(*key).count().where(F.col("count") > 1).count() == 0
+    # Only visitors from that cutoff's label window get candidates.
+    labels = read_table(spark, gold / "labels").select("cutoff_date", "visitor_id").distinct()
+    assert cands.join(labels, ["cutoff_date", "visitor_id"], "left_anti").count() == 0
+    metrics = json.loads((gold / "_reports" / "candidates_val_metrics.json").read_text())
+    assert {m["source"] for m in metrics} == {*sources, "union"}
+    assert all(m["split"] == "val" for m in metrics)

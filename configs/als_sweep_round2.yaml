@@ -1,0 +1,7 @@
+# ALS sweep round 2 (full data): round 1's best (rank 64, reg 0.01, alpha 20) was on the
+# grid edge, so extend rank and alpha past it. Run: make als-sweep ENV=als_sweep_round2
+candidates:
+  als_sweep:
+    rank: [64, 128]
+    reg_param: [0.01]
+    alpha: [20.0, 40.0]

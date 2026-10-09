@@ -106,6 +106,63 @@ class FeatureConfig(BaseModel):
     max_session_items_for_pairs: int = Field(gt=1)
 
 
+class PopularityConfig(BaseModel):
+    window_days: int = Field(gt=0)
+
+
+class CategoryCandidatesConfig(BaseModel):
+    top_categories: int = Field(gt=0)
+    half_life_days: float = Field(gt=0)
+    window_days: int = Field(gt=0)
+
+
+class HistoryCandidatesConfig(BaseModel):
+    half_life_days: float = Field(gt=0)
+
+
+class CooccurrenceConfig(BaseModel):
+    window_days: int = Field(gt=0)
+    max_session_items: int = Field(gt=1)
+    min_pair_sessions: int = Field(ge=1)
+    neighbors_per_item: int = Field(gt=0)
+    seed_items: int = Field(gt=0)
+    seed_half_life_days: float = Field(gt=0)
+    salt_buckets: int = Field(ge=0)
+
+
+class ALSConfig(BaseModel):
+    rank: int = Field(gt=0)
+    reg_param: float = Field(ge=0)
+    alpha: float = Field(gt=0)
+    max_iter: int = Field(gt=0)
+    min_user_items: int = Field(ge=1)
+    min_item_users: int = Field(ge=1)
+    seed: int = 42
+
+
+class ALSSweepConfig(BaseModel):
+    rank: list[int] = Field(min_length=1)
+    reg_param: list[float] = Field(min_length=1)
+    alpha: list[float] = Field(min_length=1)
+
+
+class CandidatesConfig(BaseModel):
+    top_n: int = Field(gt=0)
+    eval_ks: list[int] = Field(min_length=1)
+    popularity: PopularityConfig
+    category: CategoryCandidatesConfig
+    history: HistoryCandidatesConfig
+    cooccurrence: CooccurrenceConfig
+    als: ALSConfig
+    als_sweep: ALSSweepConfig
+
+    @model_validator(mode="after")
+    def _ks_within_top_n(self) -> CandidatesConfig:
+        if max(self.eval_ks) > self.top_n:
+            raise ValueError("eval_ks must not exceed top_n")
+        return self
+
+
 class Config(BaseModel):
     env: str
     paths: PathsConfig
@@ -115,6 +172,7 @@ class Config(BaseModel):
     sample: SampleConfig
     split: SplitConfig
     features: FeatureConfig
+    candidates: CandidatesConfig
 
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:

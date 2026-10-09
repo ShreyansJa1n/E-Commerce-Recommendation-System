@@ -14,7 +14,8 @@ architecture decisions, and [docs/RESULTS.md](docs/RESULTS.md) for measured resu
 | 0 | Scaffold, Makefile, CI, smoke test | done |
 | 1 | Ingest and clean (bronze → silver) | done |
 | 2 | Feature engineering (silver → gold) | done |
-| 3 | Candidate generation | not started |
+| 3 | Candidate generation | done |
+| 4 | Embeddings and vector search | not started |
 
 ## Prerequisites
 
@@ -39,8 +40,9 @@ synthetic generator with the same schemas (`tests/fixtures/synth.py`, ADR-003).
 
 ```bash
 make sample            # data/raw -> data/sample/raw (deterministic 5% of visitors)
-make data              # raw -> bronze -> silver -> gold on the sample (ENV=sample is the default)
-make data ENV=base     # same on the full dataset (~2.5 min on an M4)
+make data              # raw -> bronze -> silver -> gold -> candidates on the sample (ENV=sample is the default)
+make data ENV=base     # same on the full dataset
+make als-sweep ENV=base  # ALS hyperparameter sweep on the validation cutoff
 make contract          # regenerate docs/feature_contract.md
 ```
 
@@ -58,6 +60,8 @@ make contract          # regenerate docs/feature_contract.md
 | gold | `cutoffs` | Train/val/test cutoffs T and label windows |
 | gold | `user_features`, `user_category_affinity`, `item_features` | Point-in-time features at each cutoff, from events before T only. See [feature contract](docs/feature_contract.md) |
 | gold | `labels` | Future interactions in `[T, label_end)` with graded relevance and cold/repeat flags |
+| gold | `candidates` | Top-100 per visitor per source (`popular_global`, `popular_category`, `recent_items`, `cooccurrence`, `als`), partitioned by `cutoff_date`/`source` (ADR-008) |
+| gold | `item_neighbors` | Session co-occurrence neighbors (cosine) per item and cutoff |
 
 Ranking metrics (Precision/Recall/NDCG/MAP/hit rate @K) live in `recsys.eval.metrics`, with a
 Spark implementation that is cross-checked against a plain-Python reference.
