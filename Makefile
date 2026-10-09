@@ -2,7 +2,7 @@
 UV ?= uv
 ENV ?= sample
 
-.PHONY: help setup lint format typecheck test check sample clean
+.PHONY: help setup lint format typecheck test check sample bronze silver data clean
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-12s %s\n", $$1, $$2}'
@@ -27,9 +27,19 @@ test: ## Run pytest
 
 check: lint typecheck test ## Everything CI runs
 
-sample: ## Build a small sample from data/raw (implemented in Phase 1)
+RUN = $(UV) run python -m recsys.cli
+
+sample: ## Build data/sample/raw from data/raw (deterministic visitor sample)
 	@test -f data/raw/events.csv || { echo "data/raw/events.csv not found. Download Retailrocket into data/raw/ (see README)."; exit 1; }
-	@echo "make sample is implemented in Phase 1."; exit 1
+	$(RUN) sample --env sample
+
+bronze: ## Raw CSV -> bronze Parquet (ENV=sample|base)
+	$(RUN) bronze --env $(ENV)
+
+silver: ## Bronze -> silver + validation reports (ENV=sample|base)
+	$(RUN) silver --env $(ENV)
+
+data: bronze silver ## Ingest and clean end to end
 
 clean: ## Remove caches and Spark artifacts (keeps data/)
 	rm -rf .pytest_cache .mypy_cache .ruff_cache spark-warehouse metastore_db derby.log

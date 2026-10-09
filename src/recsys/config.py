@@ -8,6 +8,7 @@ deep-merged on top. Select it with ``load_config("sample")`` or the
 from __future__ import annotations
 
 import os
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -38,10 +39,39 @@ class SparkConfig(BaseModel):
     extra_conf: dict[str, str] = Field(default_factory=dict)
 
 
+class IngestConfig(BaseModel):
+    events_files: list[str] = Field(default_factory=lambda: ["events.csv"])
+    item_properties_files: list[str] = Field(
+        default_factory=lambda: ["item_properties_part1.csv", "item_properties_part2.csv"]
+    )
+    category_tree_file: str = "category_tree.csv"
+
+
+class CleanConfig(BaseModel):
+    valid_event_types: list[str] = Field(
+        default_factory=lambda: ["view", "addtocart", "transaction"]
+    )
+    # Inclusive lower / exclusive upper bound on event time (UTC, ISO dates).
+    min_event_date: date
+    max_event_date: date
+    # Extend the first snapshot of each (item, property) back to -inf. Retailrocket's first
+    # property snapshot is a week after the first event, so without this the first week of
+    # events has no catalog. See ADR-005.
+    backfill_first_property_version: bool = True
+
+
+class SampleConfig(BaseModel):
+    visitor_fraction: float = Field(gt=0, le=1)
+    salt: str = "recsys-sample"
+
+
 class Config(BaseModel):
     env: str
     paths: PathsConfig
     spark: SparkConfig = Field(default_factory=SparkConfig)
+    ingest: IngestConfig = Field(default_factory=IngestConfig)
+    clean: CleanConfig
+    sample: SampleConfig
 
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:

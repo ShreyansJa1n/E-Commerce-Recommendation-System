@@ -10,3 +10,19 @@ spark:
   driver_memory: 4g
   shuffle_partitions: 8
   extra_conf: {}
+
+ingest:
+  events_files: [events.csv]
+  item_properties_files: [item_properties_part1.csv, item_properties_part2.csv]
+  category_tree_file: category_tree.csv
+
+clean:
+  valid_event_types: [view, addtocart, transaction]
+  min_event_date: 2015-05-01
+  max_event_date: 2015-10-01
+  backfill_first_property_version: true
+
+# `make sample` reads base paths.raw and writes to the sample env's paths.raw.
+sample:
+  visitor_fraction: 0.05
+  salt: recsys-sample

@@ -21,3 +21,14 @@ Short ADRs: what, why, trade-offs.
 - **What:** Qdrant (not pgvector). Locust (not k6).
 - **Why:** Qdrant runs as one container with payload filtering. Locust is Python-native, like the rest of the stack.
 - **Trade-offs:** Qdrant adds a service to docker compose. Locust has lower max throughput than k6, which is fine at this scale.
+
+## ADR-005: Versioned item properties with first-version backfill
+- **What:** Silver keeps `item_properties_scd`: one row per (item, property, value) version with `[valid_from, valid_to)`. Consecutive identical weekly snapshots are collapsed. Features must join with `recsys.clean.catalog.property_as_of`. `catalog_latest` is for serving and reporting only.
+- **Why:** 23,352 items change `categoryid` during the dataset, so a latest-value catalog would leak future category values into training features.
+- **Backfill:** The first property snapshot (2015-05-10 03:00 UTC) comes a week after the first event, and 137,179 events (5%) happen before it. With `clean.backfill_first_property_version: true` (the default), each (item, property)'s first version is valid from 1970-01-01, which assumes the first observed value already held before the first snapshot. `first_seen_ts` and `is_backfilled` keep the real observation time. Set the flag to false for a strict no-assumption join (those events then get null properties).
+- **Trade-offs:** A small, documented lookahead for items whose value changed in their first, unobserved week. A Phase 2 ablation can measure its effect.
+
+## ADR-006: Bronze keeps every row; silver quarantines rejects
+- **What:** Raw CSVs are read with string schemas and `try_cast` into bronze, so unparseable values become nulls instead of failing the job (Spark 4 ANSI mode). Header names are checked against the schema (`enforceSchema=false`). Silver tags each invalid row with its first failing rule and writes it to `silver/_rejected/events`. Exact duplicates on (ts_ms, visitor_id, event_type, item_id) are dropped and counted.
+- **Why:** Bronze → silver row counts reconcile exactly (silver + rejected + duplicates = bronze), and bad input is visible instead of silently dropped.
+- **Trade-offs:** Bronze stores some rows that are never used. Validation checks fail the stage on `error` severity (including an empty table) and only report on `warn`.

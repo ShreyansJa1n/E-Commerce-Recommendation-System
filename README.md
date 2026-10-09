@@ -12,7 +12,8 @@ architecture decisions, and [docs/RESULTS.md](docs/RESULTS.md) for measured resu
 | Phase | Description | Status |
 |---|---|---|
 | 0 | Scaffold, Makefile, CI, smoke test | done |
-| 1 | Ingest and clean (bronze → silver) | not started |
+| 1 | Ingest and clean (bronze → silver) | done |
+| 2 | Feature engineering (silver → gold) | not started |
 
 ## Prerequisites
 
@@ -33,7 +34,27 @@ make help      # list all targets
 Download the [Retailrocket dataset](https://www.kaggle.com/datasets/retailrocket/ecommerce-dataset)
 and put `events.csv`, `item_properties_part1.csv`, `item_properties_part2.csv`, and
 `category_tree.csv` in `data/raw/` (gitignored). CI never uses the real data: tests run on a
-synthetic generator with the same schemas (see ADR-003).
+synthetic generator with the same schemas (`tests/fixtures/synth.py`, ADR-003).
+
+```bash
+make sample            # data/raw -> data/sample/raw (deterministic 5% of visitors)
+make data              # raw -> bronze -> silver on the sample (ENV=sample is the default)
+make data ENV=base     # same on the full dataset (~70 s on an M4)
+```
+
+## Pipeline tables
+
+| Layer | Table | Notes |
+|---|---|---|
+| bronze | `events`, `item_properties`, `category_tree` | Typed with `try_cast`, every input row kept. Events partitioned by `event_date`, properties by `snapshot_date` |
+| silver | `events` | Valid, deduplicated events, partitioned by `event_date` |
+| silver | `_rejected/events` | Invalid rows with a `reject_reason` |
+| silver | `item_properties_scd` | Value versions with `[valid_from, valid_to)`. Join with `property_as_of` for point-in-time correctness (ADR-005) |
+| silver | `categories` | Category tree with parent, root, and level |
+| silver | `catalog_latest` | Current category/availability per item, for serving and reporting only |
+
+Each stage writes a run report to `<layer>/_reports/<stage>.json`. Silver writes data-quality
+reports to `silver/_validation/<table>.json`, and an `error`-severity failure fails the stage.
 
 ## Configuration
 

@@ -1,0 +1,114 @@
+"""End-to-end raw -> bronze -> silver on synthetic data."""
+
+import json
+
+import pytest
+from pyspark.sql import SparkSession
+from pyspark.sql import functions as F
+
+from recsys.clean import catalog, events
+from recsys.config import Config
+from recsys.ingest import raw_to_bronze, sample
+from recsys.io import read_table
+from tests.conftest import make_config
+from tests.fixtures.synth import SynthStats
+
+
+@pytest.fixture(scope="module")
+def built(spark: SparkSession, synth_env: tuple[Config, SynthStats]) -> tuple[Config, SynthStats]:
+    cfg, stats = synth_env
+    raw_to_bronze.run(spark, cfg)
+    events.run(spark, cfg)
+    catalog.run(spark, cfg)
+    return cfg, stats
+
+
+def test_event_counts_reconcile(spark: SparkSession, built: tuple[Config, SynthStats]) -> None:
+    cfg, stats = built
+    p = cfg.paths.resolved()
+    report = json.loads((p.silver / "_reports" / "silver_events.json").read_text())
+    assert report["rows"]["silver"] == stats.valid_events
+    assert report["rows"]["duplicates_dropped"] == stats.duplicate_events
+    assert report["extra"]["rejected_by_reason"] == stats.rejected
+    assert report["rows"]["bronze"] == (
+        stats.valid_events + stats.duplicate_events + sum(stats.rejected.values())
+    )
+
+
+def test_silver_is_partitioned_by_date(built: tuple[Config, SynthStats]) -> None:
+    cfg, _ = built
+    parts = sorted(d.name for d in (cfg.paths.resolved().silver / "events").glob("event_date=*"))
+    assert parts and all(p.startswith("event_date=2015-") for p in parts)
+
+
+def test_validation_reports_written_and_pass(built: tuple[Config, SynthStats]) -> None:
+    cfg, _ = built
+    vdir = cfg.paths.resolved().silver / "_validation"
+    names = sorted(p.stem for p in vdir.glob("*.json"))
+    assert names == [
+        "silver_catalog_latest",
+        "silver_categories",
+        "silver_events",
+        "silver_item_properties_scd",
+        "silver_item_properties_scd_current",
+    ]
+    assert all(json.loads((vdir / f"{n}.json").read_text())["passed"] for n in names)
+
+
+def test_catalog_tables(spark: SparkSession, built: tuple[Config, SynthStats]) -> None:
+    cfg, stats = built
+    silver = cfg.paths.resolved().silver
+    latest = read_table(spark, silver / "catalog_latest")
+    assert latest.count() == stats.items
+    assert latest.where(F.col("category_level") != 2).count() == 0  # synth assigns leaves
+    assert read_table(spark, silver / "categories").count() == stats.categories
+    scd = read_table(spark, silver / "item_properties_scd")
+    # Items 3, 6, 9, ... change category once -> two versions.
+    versions = scd.where(F.col("property") == "categoryid").groupBy("item_id").count()
+    assert versions.where(F.col("count") > 2).count() == 0
+    assert versions.where(F.col("count") == 2).count() > 0
+
+
+def test_rerun_is_idempotent(spark: SparkSession, built: tuple[Config, SynthStats]) -> None:
+    cfg, _ = built
+    silver = cfg.paths.resolved().silver
+    before = {t: read_table(spark, silver / t).count() for t in ("events", "item_properties_scd")}
+    files_before = sorted(p.name for p in (silver / "events").glob("event_date=*"))
+    raw_to_bronze.run(spark, cfg)
+    events.run(spark, cfg)
+    catalog.run(spark, cfg)
+    after = {t: read_table(spark, silver / t).count() for t in ("events", "item_properties_scd")}
+    assert before == after
+    assert files_before == sorted(p.name for p in (silver / "events").glob("event_date=*"))
+
+
+def test_sample_is_deterministic_and_ingestible(
+    spark: SparkSession,
+    synth_env: tuple[Config, SynthStats],
+    tmp_path_factory: pytest.TempPathFactory,
+) -> None:
+    source, _ = synth_env
+    source = source.model_copy(
+        update={"sample": source.sample.model_copy(update={"visitor_fraction": 0.5})}
+    )
+    a = make_config(tmp_path_factory.mktemp("sample_a"))
+    b = make_config(tmp_path_factory.mktemp("sample_b"))
+    sample.run(spark, source, a)
+    sample.run(spark, source, b)
+    for name in (
+        "events.csv",
+        "item_properties_part1.csv",
+        "item_properties_part2.csv",
+        "category_tree.csv",
+    ):
+        assert (a.paths.raw / name).read_text() == (b.paths.raw / name).read_text()
+    n_sampled = len((a.paths.raw / "events.csv").read_text().splitlines()) - 1
+    n_full = len((source.paths.raw / "events.csv").read_text().splitlines()) - 1
+    assert 0 < n_sampled < n_full
+    # The sample must round-trip through ingest with every column in place.
+    raw_to_bronze.run(spark, a)
+    full = read_table(spark, source.paths.resolved().bronze / "item_properties")
+    sampled = read_table(spark, a.paths.resolved().bronze / "item_properties")
+    assert sampled.count() > 0
+    assert sampled.where(F.col("item_id").isNull() | F.col("snapshot_ts").isNull()).count() == 0
+    assert sampled.drop("_source_file").exceptAll(full.drop("_source_file")).count() == 0
