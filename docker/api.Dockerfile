@@ -1,5 +1,6 @@
 # API image: only the `serving` dependency group (no Spark/JVM).
-FROM python:3.12.15-slim-bookworm
+# Docker Hub's official image via Google's mirror (avoids anonymous pull rate limits in CI).
+FROM mirror.gcr.io/library/python:3.12.15-slim-bookworm
 COPY --from=ghcr.io/astral-sh/uv:0.8.10 /uv /usr/local/bin/uv
 WORKDIR /app
 ENV UV_LINK_MODE=copy UV_COMPILE_BYTECODE=1
