@@ -32,6 +32,14 @@ def make_config(root: Path) -> Config:
     data = load_config("base").model_dump()
     data["paths"] = {k: str(root / k) for k in ("raw", "bronze", "silver", "gold")}
     data["env"] = "test"
+    # Synthetic events cover 2015-05-03 .. 2015-05-31 (see tests/fixtures/synth.py).
+    data["split"] = {
+        "train_cutoffs": ["2015-05-17"],
+        "val_start": "2015-05-24",
+        "test_start": "2015-05-27",
+        "end": "2015-05-31",
+        "label_horizon_days": 7,
+    }
     return Config.model_validate(data)
 
 

@@ -25,6 +25,32 @@ Measured 2026-10-09, Phase 1 commit. Wall time is `make data` including JVM star
 
 Data facts that drive later phases (full data): 1,407,580 visitors and 235,061 items with events. 71.2% of visitors have exactly one event (median 1, p90 3, p99 13). 23,352 items change category over time. 137,179 events come before the first property snapshot (ADR-005).
 
+## Features and split (Phase 2)
+Measured 2026-10-09, Phase 2 commit. `make gold ENV=base`: 88.63 s stage time, 90.85 s wall (4 cutoffs).
+
+| Table (full data, all cutoffs) | Rows |
+|---|---:|
+| `events_enriched` | 2,755,641 |
+| `user_features` | 4,316,835 |
+| `user_category_affinity` | 1,338,315 |
+| `item_features` | 1,838,940 |
+| `labels` | 843,105 |
+
+Label windows (14 days each):
+
+| split | cutoff | label pairs | label visitors | visitors with any history | pairs seen before T | purchased pairs |
+|---|---|---:|---:|---:|---:|---:|
+| train | 2015-07-24 | 248,024 | 172,049 | 8.4% | 1.8% | 2,408 |
+| train | 2015-08-07 | 198,318 | 142,829 | 9.4% | 2.1% | 1,972 |
+| val | 2015-08-21 | 196,586 | 141,559 | 10.1% | 2.2% | 1,969 |
+| test | 2015-09-04 | 200,177 | 142,838 | 10.4% | 2.1% | 1,842 |
+
+**About 90% of the visitors we'd evaluate on have no history before the cutoff.** Personalized candidate generators can only help the ~10% warm segment. The cold majority gets popularity- and context-based recommendations. Phase 3 reports warm and cold separately.
+
+Event category coverage (point-in-time): 90.73% with first-version backfill, 76.16% without (ADR-005).
+
+Sample (5% of visitors): 25.77 s stage, 28.68 s wall. 41,662 label rows, 9.0–9.7% warm visitors per cutoff.
+
 ## Candidate generation (Phase 3)
 _Not yet measured._
 

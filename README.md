@@ -13,7 +13,8 @@ architecture decisions, and [docs/RESULTS.md](docs/RESULTS.md) for measured resu
 |---|---|---|
 | 0 | Scaffold, Makefile, CI, smoke test | done |
 | 1 | Ingest and clean (bronze → silver) | done |
-| 2 | Feature engineering (silver → gold) | not started |
+| 2 | Feature engineering (silver → gold) | done |
+| 3 | Candidate generation | not started |
 
 ## Prerequisites
 
@@ -38,8 +39,9 @@ synthetic generator with the same schemas (`tests/fixtures/synth.py`, ADR-003).
 
 ```bash
 make sample            # data/raw -> data/sample/raw (deterministic 5% of visitors)
-make data              # raw -> bronze -> silver on the sample (ENV=sample is the default)
-make data ENV=base     # same on the full dataset (~70 s on an M4)
+make data              # raw -> bronze -> silver -> gold on the sample (ENV=sample is the default)
+make data ENV=base     # same on the full dataset (~2.5 min on an M4)
+make contract          # regenerate docs/feature_contract.md
 ```
 
 ## Pipeline tables
@@ -52,6 +54,13 @@ make data ENV=base     # same on the full dataset (~70 s on an M4)
 | silver | `item_properties_scd` | Value versions with `[valid_from, valid_to)`. Join with `property_as_of` for point-in-time correctness (ADR-005) |
 | silver | `categories` | Category tree with parent, root, and level |
 | silver | `catalog_latest` | Current category/availability per item, for serving and reporting only |
+| gold | `events_enriched` | Silver events + `session_id` (30-min gap) + point-in-time `category_id` |
+| gold | `cutoffs` | Train/val/test cutoffs T and label windows |
+| gold | `user_features`, `user_category_affinity`, `item_features` | Point-in-time features at each cutoff, from events before T only. See [feature contract](docs/feature_contract.md) |
+| gold | `labels` | Future interactions in `[T, label_end)` with graded relevance and cold/repeat flags |
+
+Ranking metrics (Precision/Recall/NDCG/MAP/hit rate @K) live in `recsys.eval.metrics`, with a
+Spark implementation that is cross-checked against a plain-Python reference.
 
 Each stage writes a run report to `<layer>/_reports/<stage>.json`. Silver writes data-quality
 reports to `silver/_validation/<table>.json`, and an `error`-severity failure fails the stage.

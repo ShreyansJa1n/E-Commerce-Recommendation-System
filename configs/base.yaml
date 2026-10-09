@@ -26,3 +26,21 @@ clean:
 sample:
   visitor_fraction: 0.05
   salt: recsys-sample
+
+# Time-based split (Phase 2). Data covers 2015-05-03 .. 2015-09-18 03:00 UTC; the partial
+# last day is excluded by `end`.
+split:
+  train_cutoffs: [2015-07-24, 2015-08-07]
+  val_start: 2015-08-21
+  test_start: 2015-09-04
+  end: 2015-09-18
+  label_horizon_days: 14
+
+features:
+  windows_days: [7, 30]
+  session_gap_minutes: 30
+  event_weights: {view: 1.0, addtocart: 3.0, transaction: 5.0}
+  relevance: {view: 1, addtocart: 2, transaction: 3}
+  conversion_prior_views: 20
+  cooccurrence_window_days: 30
+  max_session_items_for_pairs: 50

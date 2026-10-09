@@ -8,12 +8,12 @@ deep-merged on top. Select it with ``load_config("sample")`` or the
 from __future__ import annotations
 
 import os
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_DIR = REPO_ROOT / "configs"
@@ -65,6 +65,47 @@ class SampleConfig(BaseModel):
     salt: str = "recsys-sample"
 
 
+class SplitConfig(BaseModel):
+    """Time-based split. All dates are UTC midnights; windows are ``[start, end)``.
+
+    - train cutoffs: features from events before T, labels from ``[T, T + horizon)``
+    - val: cutoff ``val_start``, labels ``[val_start, test_start)``
+    - test: cutoff ``test_start``, labels ``[test_start, end)``
+    """
+
+    train_cutoffs: list[date] = Field(min_length=1)
+    val_start: date
+    test_start: date
+    end: date
+    label_horizon_days: int = Field(gt=0)
+
+    @model_validator(mode="after")
+    def _ordered(self) -> SplitConfig:
+        if not self.val_start < self.test_start < self.end:
+            raise ValueError("split dates must satisfy val_start < test_start < end")
+        horizon = timedelta(days=self.label_horizon_days)
+        for t in self.train_cutoffs:
+            if t + horizon > self.val_start:
+                raise ValueError(f"train cutoff {t} label window overlaps validation")
+        if sorted(set(self.train_cutoffs)) != self.train_cutoffs:
+            raise ValueError("train_cutoffs must be strictly increasing")
+        return self
+
+
+class FeatureConfig(BaseModel):
+    windows_days: list[int] = Field(min_length=1)
+    session_gap_minutes: int = Field(gt=0)
+    # Interaction strength per event type (category affinity; reused by ALS in Phase 3).
+    event_weights: dict[str, float]
+    # Graded relevance of a future interaction, used for labels and NDCG.
+    relevance: dict[str, int]
+    # Pseudo-count for Bayesian-smoothed item conversion rates.
+    conversion_prior_views: float = Field(ge=0)
+    cooccurrence_window_days: int = Field(gt=0)
+    # Sessions with more distinct items than this are skipped when counting co-views.
+    max_session_items_for_pairs: int = Field(gt=1)
+
+
 class Config(BaseModel):
     env: str
     paths: PathsConfig
@@ -72,6 +113,8 @@ class Config(BaseModel):
     ingest: IngestConfig = Field(default_factory=IngestConfig)
     clean: CleanConfig
     sample: SampleConfig
+    split: SplitConfig
+    features: FeatureConfig
 
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:

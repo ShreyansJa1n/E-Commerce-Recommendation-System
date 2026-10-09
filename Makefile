@@ -2,7 +2,7 @@
 UV ?= uv
 ENV ?= sample
 
-.PHONY: help setup lint format typecheck test check sample bronze silver data clean
+.PHONY: help setup lint format typecheck test check sample bronze silver gold data contract clean
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-12s %s\n", $$1, $$2}'
@@ -39,7 +39,13 @@ bronze: ## Raw CSV -> bronze Parquet (ENV=sample|base)
 silver: ## Bronze -> silver + validation reports (ENV=sample|base)
 	$(RUN) silver --env $(ENV)
 
-data: bronze silver ## Ingest and clean end to end
+gold: ## Silver -> gold features, labels, cutoffs (ENV=sample|base)
+	$(RUN) gold --env $(ENV)
+
+data: bronze silver gold ## Raw -> gold end to end
+
+contract: ## Regenerate docs/feature_contract.md from the contract specs
+	$(RUN) contract
 
 clean: ## Remove caches and Spark artifacts (keeps data/)
 	rm -rf .pytest_cache .mypy_cache .ruff_cache spark-warehouse metastore_db derby.log

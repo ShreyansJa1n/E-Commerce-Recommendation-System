@@ -1,4 +1,4 @@
-"""End-to-end raw -> bronze -> silver on synthetic data."""
+"""End-to-end raw -> bronze -> silver -> gold on synthetic data."""
 
 import json
 
@@ -8,6 +8,8 @@ from pyspark.sql import functions as F
 
 from recsys.clean import catalog, events
 from recsys.config import Config
+from recsys.features import contract
+from recsys.features import pipeline as features
 from recsys.ingest import raw_to_bronze, sample
 from recsys.io import read_table
 from tests.conftest import make_config
@@ -20,6 +22,7 @@ def built(spark: SparkSession, synth_env: tuple[Config, SynthStats]) -> tuple[Co
     raw_to_bronze.run(spark, cfg)
     events.run(spark, cfg)
     catalog.run(spark, cfg)
+    features.run(spark, cfg)
     return cfg, stats
 
 
@@ -112,3 +115,52 @@ def test_sample_is_deterministic_and_ingestible(
     assert sampled.count() > 0
     assert sampled.where(F.col("item_id").isNull() | F.col("snapshot_ts").isNull()).count() == 0
     assert sampled.drop("_source_file").exceptAll(full.drop("_source_file")).count() == 0
+
+
+def test_gold_tables_match_contract(spark: SparkSession, built: tuple[Config, SynthStats]) -> None:
+    cfg, _ = built
+    gold = cfg.paths.resolved().gold
+    for name, specs in contract.table_specs(cfg.features).items():
+        df = read_table(spark, gold / name)
+        # Partition column comes back last on read; compare as name -> type.
+        got = {f.name: f.dataType.simpleString() for f in df.schema}
+        assert got == {s.name: s.dtype for s in specs}, name
+        cutoffs = {r.cutoff_date.isoformat() for r in df.select("cutoff_date").distinct().collect()}
+        assert cutoffs <= {"2015-05-17", "2015-05-24", "2015-05-27"}, name
+    vdir = gold / "_validation"
+    for name in contract.table_specs(cfg.features):
+        assert json.loads((vdir / f"gold_{name}.json").read_text())["passed"], name
+
+
+def test_gold_split_is_time_ordered(spark: SparkSession, built: tuple[Config, SynthStats]) -> None:
+    cfg, _ = built
+    gold = cfg.paths.resolved().gold
+    cuts = {r.split: r for r in read_table(spark, gold / "cutoffs").collect()}
+    labels = read_table(spark, gold / "labels")
+    for split, cut in cuts.items():
+        window = (
+            labels.where(F.col("split") == split)
+            .agg(F.min("first_label_ts").alias("lo"), F.max("first_label_ts").alias("hi"))
+            .collect()[0]
+        )
+        assert window.lo is not None, split
+        assert cut.cutoff_ts <= window.lo and window.hi < cut.label_end_ts, split
+    assert cuts["train"].label_end_ts <= cuts["val"].cutoff_ts
+    assert cuts["val"].label_end_ts <= cuts["test"].cutoff_ts
+
+
+def test_gold_features_only_see_history(
+    spark: SparkSession, built: tuple[Config, SynthStats]
+) -> None:
+    cfg, _ = built
+    gold = cfg.paths.resolved().gold
+    users = read_table(spark, gold / "user_features")
+    # Recency is measured back from T, so it can never be negative.
+    assert users.where(F.col("days_since_last_event") < 0).count() == 0
+    assert (
+        read_table(spark, gold / "item_features").where(F.col("days_since_last_event") < 0).count()
+        == 0
+    )
+    report = json.loads((gold / "_reports" / "gold_features.json").read_text())
+    assert [r["split"] for r in report["extra"]["labels"]] == ["train", "val", "test"]
+    assert 0 < report["extra"]["events_with_category_share"] <= 1
