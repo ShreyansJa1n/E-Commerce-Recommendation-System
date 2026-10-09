@@ -1,0 +1,10 @@
+# Small sample used for local iteration and `make all`. Merged over base.yaml.
+paths:
+  raw: data/sample/raw
+  bronze: data/sample/bronze
+  silver: data/sample/silver
+  gold: data/sample/gold
+
+spark:
+  driver_memory: 2g
+  shuffle_partitions: 4

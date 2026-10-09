@@ -1,0 +1,12 @@
+# Base config. Paths are relative to the repo root.
+paths:
+  raw: data/raw
+  bronze: data/bronze
+  silver: data/silver
+  gold: data/gold
+
+spark:
+  master: "local[*]"
+  driver_memory: 4g
+  shuffle_partitions: 8
+  extra_conf: {}
