@@ -93,3 +93,13 @@ Short ADRs: what, why, trade-offs.
 - **Alerts:** Prometheus rules for Redis/Qdrant down, degraded serving, fallback share > 90%, stale snapshot or pipeline (36 h), p99 > 100 ms, 5xx > 1%, and validation failures. No Alertmanager locally; each alert maps to a RUNBOOK section.
 - **Resilience, from a failure drill:** per-worker startup warm-up of the popularity fallback, and a 5 s Redis circuit breaker (RESULTS.md, Phase 8).
 - **Trade-offs:** Pushgateway keeps the *last* value per stage, so it has no history of failed runs beyond the missing "last success". A real deployment would also use an exporter for Redis, and a scheduler (Airflow etc.) for run history.
+
+## ADR-014: Performance defaults, chosen by measurement
+- **What:** keep AQE on with 8 local shuffle partitions, the default 10 MB broadcast threshold, explicit `.cache()` only where an expensive frame is reused, date partitioning for event tables, and salting off by default (`cooccurrence.salt_buckets = 0`).
+- **Why:** `make perf` (RESULTS.md, Phase 9) measured each choice against its alternative on the full data:
+  - AQE at 8 partitions is the fastest and cheapest configuration.
+  - AQE picks broadcast joins without hints.
+  - Caching the PIT enrichment saves 20% CPU.
+  - Salting cost 10% *more* time at this skew level.
+  - Partition pruning cuts bytes read by 99%, even though it doesn't win wall time at this size.
+- **Trade-offs:** these defaults are tuned for one machine. On a cluster, shuffle partitions should scale with data volume (AQE coalescing makes overshooting cheap), and salting becomes worthwhile once a hot key's partition exceeds AQE's skew threshold by a wide margin.

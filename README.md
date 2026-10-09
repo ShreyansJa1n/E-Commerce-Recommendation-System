@@ -20,7 +20,8 @@ architecture decisions, and [docs/RESULTS.md](docs/RESULTS.md) for measured resu
 | 6 | Offline evaluation and experiment simulation | done |
 | 7 | Serving layer | done |
 | 8 | Observability and ops | done |
-| 9 | Performance and scale | not started |
+| 9 | Performance and scale | done |
+| 10 | Packaging and polish | not started |
 
 ## Prerequisites
 

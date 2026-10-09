@@ -2,7 +2,7 @@
 UV ?= uv
 ENV ?= sample
 
-.PHONY: help setup lint format typecheck test check sample bronze silver gold embeddings candidates ranking ranking-eval eval serve-load serve loadtest-ids loadtest openapi als-sweep up down vectors-load vectors-bench data contract clean
+.PHONY: help setup lint format typecheck test check sample bronze silver gold embeddings candidates ranking ranking-eval eval serve-load serve loadtest-ids loadtest openapi perf als-sweep up down vectors-load vectors-bench data contract clean
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-12s %s\n", $$1, $$2}'
@@ -76,6 +76,9 @@ loadtest: ## Locust load test against $(HOST) (default: the compose API on :8000
 openapi: ## Write the API's OpenAPI schema to docs/openapi.json
 	$(UV) run python -c "import json; from recsys.serving.app import create_app, Recommender; \
 	print(json.dumps(create_app(Recommender(None, None)).openapi(), indent=2))" > docs/openapi.json
+
+perf: ## Spark optimization before/after benchmarks with Spark UI metrics (ENV=)
+	$(RUN) perf --env $(ENV)
 
 up: ## Start local services (docker compose)
 	docker compose up -d --build --wait

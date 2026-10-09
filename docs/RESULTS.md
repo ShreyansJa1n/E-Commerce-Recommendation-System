@@ -382,4 +382,74 @@ Measured 2026-10-09, Phase 8 commit. `make up` brings up Qdrant, Redis, the API,
 **Fix found here:** the API image was **2.66 GB**, because `uv sync --group serving` still installed the project's main dependencies (PySpark, gensim, LightGBM). With `--only-group serving` it is **629 MB**, and those packages are verified absent. The Phase 7 load test ran on the larger image; the request code path is identical. The oversized image plus 12.95 GB of Docker build cache filled the disk mid-build (426 MB free, OrbStack crashed). Pruning the build cache freed 6.4 GB.
 
 ## Pipeline performance (Phase 9)
-_Not yet measured._
+Measured 2026-10-09, Phase 9 commit, full data, Spark 4.0.4 `local[*]` on the M4 (10 cores, 16 GB). `make perf ENV=base` (89.99 s) runs each variant 3 times on one session, with SQL confs set at runtime and the cache cleared between reps. Wall time is the median. CPU, bytes, spill and task counts come from the Spark REST API (the same numbers as the Spark UI) for the last rep. "Heaviest stage: max/median task" is the slowest task divided by the median task in the stage with the most shuffle read, which is a direct skew measure.
+
+**Noise:** a second full run moved some wall times a lot. Pruning went from 0.25 vs 0.24 s to 0.11 vs 0.24 s, and the caching gain from 17% to 5%. At this data size (2.76M events, about 100 MB of Parquet per table) many workloads take about 1 s, so CPU time, bytes and task counts are the more reliable signals. The tables below are from the final run.
+
+### partition pruning
+7-day event aggregation: date-partitioned table vs. the same data unpartitioned.
+
+| variant | wall s (median of 3) | wall s (all reps) | CPU s (executor run time) | input MB | shuffle write MB | spill | tasks | heaviest stage: max/median task |
+|---|---:|---|---:|---:|---:|---:|---:|---:|
+| unpartitioned (filter on event_ts) | 0.111 | 0.66, 0.11, 0.11 | 0.2 | 23.6 | 0.0 | 0 | 11 | 1.0 |
+| partitioned by event_date (pruned) | 0.241 | 0.30, 0.24, 0.23 | 0.2 | 0.3 | 0.0 | 0 | 151 | 1.0 |
+### broadcast join
+2.76M events joined with the 417k-item catalog, then aggregated.
+
+| variant | wall s (median of 3) | wall s (all reps) | CPU s (executor run time) | input MB | shuffle write MB | spill | tasks | heaviest stage: max/median task |
+|---|---:|---|---:|---:|---:|---:|---:|---:|
+| sort-merge join (AQE off, broadcast off) | 0.759 | 1.70, 0.76, 0.68 | 3.7 | 44.3 | 16.2 | 0 | 200 | 1.11 |
+| broadcast hint (AQE off) | 0.610 | 0.78, 0.61, 0.53 | 2.1 | 44.3 | 0.0 | 0 | 192 | 1.25 |
+| default planner (AQE on, 10 MB threshold) | 0.566 | 0.57, 0.52, 0.57 | 2.3 | 44.3 | 0.0 | 0 | 185 | 1.0 |
+### caching
+Point-in-time enrichment (as-of join + sessionization) reused by 3 aggregations.
+
+| variant | wall s (median of 3) | wall s (all reps) | CPU s (executor run time) | input MB | shuffle write MB | spill | tasks | heaviest stage: max/median task |
+|---|---:|---|---:|---:|---:|---:|---:|---:|
+| recompute each time | 3.342 | 7.03, 3.21, 3.34 | 25.0 | 443.0 | 186.6 | 0 | 310 | 1.08 |
+| cache() once | 3.158 | 4.51, 3.16, 2.92 | 20.0 | 528.5 | 171.0 | 0 | 238 | 1.02 |
+### aqe
+User features for one cutoff with spark.sql.shuffle.partitions = 200.
+
+| variant | wall s (median of 3) | wall s (all reps) | CPU s (executor run time) | input MB | shuffle write MB | spill | tasks | heaviest stage: max/median task |
+|---|---:|---|---:|---:|---:|---:|---:|---:|
+| AQE off, 200 partitions | 1.362 | 1.48, 1.36, 1.36 | 8.3 | 75.2 | 8.2 | 0 | 376 | 5.5 |
+| AQE on, 200 partitions (coalesced) | 0.992 | 0.94, 0.99, 1.04 | 6.6 | 75.2 | 8.2 | 0 | 184 | 1.08 |
+| AQE on, 8 partitions (project default) | 0.582 | 0.59, 0.58, 0.58 | 2.4 | 75.2 | 7.1 | 0 | 180 | 1.01 |
+### skew
+Co-occurrence seed x neighbor join (hot items are hot keys), 64 shuffle partitions.
+
+| variant | wall s (median of 3) | wall s (all reps) | CPU s (executor run time) | input MB | shuffle write MB | spill | tasks | heaviest stage: max/median task |
+|---|---:|---|---:|---:|---:|---:|---:|---:|
+| no skew handling (AQE off) | 3.135 | 3.38, 3.13, 2.31 | 18.6 | 86.9 | 49.5 | 0 | 370 | 1.9 |
+| AQE on, skew-join off | 1.671 | 2.11, 1.67, 1.46 | 9.8 | 86.9 | 47.3 | 0 | 123 | 1.49 |
+| AQE skew-join | 1.297 | 1.77, 1.26, 1.30 | 8.3 | 86.9 | 47.3 | 0 | 123 | 1.5 |
+| salted join, 8 buckets (AQE off) | 3.459 | 3.96, 3.34, 3.46 | 29.8 | 183.9 | 101.1 | 0 | 477 | 1.79 |
+
+**Findings:**
+- **Partition pruning:** bytes read drop **99%** (23.6 → 0.3 MB) for a 7-day query, but wall time doesn't improve here. Listing and scheduling 151 small partition files costs about as much as scanning 23 MB. Pruning is about I/O, and it pays off when tables are much larger than one machine's page cache. At this size the date partitioning matters for idempotent overwrites more than for speed.
+- **Broadcast join:** broadcasting the 417k-row catalog removes the 16.2 MB shuffle. That's **20% faster and 44% less CPU** than the forced sort-merge join. AQE with the default 10 MB threshold picks the broadcast on its own and is fastest (0.566 s).
+- **Caching** the point-in-time enrichment (as-of join + sessionization window), reused by 3 aggregations, cuts executor CPU **20%** (25.0 → 20.0 s). The wall-time gain is within noise (3.34 vs 3.16 s). Wall time is bounded by the sessionization window's widest stage, which still runs once.
+- **AQE at 200 shuffle partitions:** coalescing halves the tasks (376 → 184), cuts CPU 20% and wall time **27%**. The heaviest stage's max/median task drops from 5.5 to 1.08. The project default of 8 partitions with AQE is fastest (0.582 s, 2.4 s CPU, 3.5× less than AQE off at 200). Local runs are dominated by per-task overhead.
+- **Skew (co-occurrence seed × neighbor join):** skew here is moderate (slowest task 1.9× the median without handling).
+  - AQE alone (coalescing, skew-join off) is **47% faster** than no handling (3.14 → 1.67 s).
+  - Turning on skew-join gives 1.30 s, but the rep ranges overlap and the task count is identical (123), so the split itself isn't resolved at this scale.
+  - **Salting (8 buckets) is 10% slower** than no handling, and uses 2× input and shuffle bytes, because it replicates the neighbor table 8× to fix a skew that isn't there.
+  - Conclusion: rely on AQE, and keep salting (implemented and tested in ADR-008) for severe skew, e.g. a full-traffic batch where a few items are seeds for millions of visitors.
+- **Spill:** none in any variant. Every stage fits in memory at 4 GB driver memory.
+
+### Small vs. full data (stage wall time from each run's report)
+| stage | sample (5% of visitors) s | full s | full / sample |
+|---|---:|---:|---:|
+| raw → bronze | 8.6 | 25.0 | 2.9× |
+| silver events | 6.2 | 10.7 | 1.7× |
+| silver catalog | 7.7 | 26.9 | 3.5× |
+| gold features (4 cutoffs) | 32.0 | 88.6 | 2.8× |
+| item2vec embeddings (4 cutoffs) | 8.5 | 98.6 | 11.5× |
+| ranker: train + score val/test | 20.9 | 755.8 | 36.2× |
+| ranker evaluation | 70.3 | 374.2 | 5.3× |
+| candidates, all 6 sources (4 cutoffs) | 99.2 | 751.7 (Phase 3, 5 sources) + 245.9 (Phase 4, item2vec) | ≈ 10× |
+
+Most stages grow far less than the 20× data size, because fixed per-stage costs (JVM, scheduling, small-file I/O) dominate the sample. The ranker (36×), item2vec (11.5×) and candidates (≈ 10×) scale worst. The ranker's cost grows with visitors × candidates (16.6M scored rows per cutoff on full data). item2vec trains single-threaded on the driver for determinism (ADR-009), and candidates are dominated by ALS at rank 128. These are the stages to distribute first.
+
+**Not done (deferred):** ALS beyond rank 128 (disk-bound locally, Phase 3), and cluster-scale runs. See the deployment notes in [DESIGN.md](DESIGN.md).
