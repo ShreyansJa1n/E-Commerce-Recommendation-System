@@ -2,7 +2,7 @@
 UV ?= uv
 ENV ?= sample
 
-.PHONY: help setup lint format typecheck test check sample bronze silver gold embeddings candidates ranking ranking-eval eval serve-load serve loadtest-ids loadtest openapi perf als-sweep up down vectors-load vectors-bench data contract clean
+.PHONY: help setup lint format typecheck test check all demo sample bronze silver gold embeddings candidates ranking ranking-eval eval serve-load serve loadtest-ids loadtest openapi perf als-sweep up down vectors-load vectors-bench data contract clean
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-12s %s\n", $$1, $$2}'
@@ -96,6 +96,16 @@ als-sweep: ## ALS hyperparameter sweep on the validation cutoff (ENV=sample|base
 	$(RUN) als-sweep --env $(ENV)
 
 data: bronze silver gold embeddings candidates ranking ## Raw -> ranker end to end
+
+all: ## One command: raw -> evaluation (ENV=sample also rebuilds the sample from data/raw)
+ifeq ($(ENV),sample)
+	$(MAKE) sample
+endif
+	$(MAKE) data eval ENV=$(ENV)
+
+demo: ## No Kaggle data needed: synthetic Retailrocket-shaped data -> full pipeline -> eval
+	$(UV) run python -m recsys.ingest.synth data/synth/raw
+	$(MAKE) data eval ENV=synth
 
 contract: ## Regenerate docs/feature_contract.md from the contract specs
 	$(RUN) contract

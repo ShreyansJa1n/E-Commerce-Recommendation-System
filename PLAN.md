@@ -1,5 +1,7 @@
 # PLAN.md: Spark Recommendation Platform (Claude Code build plan)
 
+> **Status (2026-10-09): all phases 0–10 complete.** Measured results are in [docs/RESULTS.md](docs/RESULTS.md) and decisions in [docs/DECISIONS.md](docs/DECISIONS.md). Deviations from this plan are recorded as ADRs: PySpark 4.0, custom validation instead of Great Expectations, an added `recent_items` source, and a simulated A/B instead of replay. The optional Kubernetes manifests and the streaming stretch were not built. [docs/DESIGN.md](docs/DESIGN.md) covers how to run this on EMR/K8s and what streaming would add.
+
 ## Goal
 Build an end-to-end product recommendation system on Apache Spark: raw events and catalog data in, features, candidates, embeddings, ranking, offline evaluation, and a low-latency serving API out. Mirror a production recommendations platform (batch pipelines, vector search, observability, experimentation).
 

@@ -453,3 +453,9 @@ Co-occurrence seed x neighbor join (hot items are hot keys), 64 shuffle partitio
 Most stages grow far less than the 20× data size, because fixed per-stage costs (JVM, scheduling, small-file I/O) dominate the sample. The ranker (36×), item2vec (11.5×) and candidates (≈ 10×) scale worst. The ranker's cost grows with visitors × candidates (16.6M scored rows per cutoff on full data). item2vec trains single-threaded on the driver for determinism (ADR-009), and candidates are dominated by ALS at rank 128. These are the stages to distribute first.
 
 **Not done (deferred):** ALS beyond rank 128 (disk-bound locally, Phase 3), and cluster-scale runs. See the deployment notes in [DESIGN.md](DESIGN.md).
+
+## Reproducibility (Phase 10)
+Measured 2026-10-09, Phase 10 commit.
+- `make all`: 5% sample, from `make sample` through bronze → silver → gold → embeddings → candidates → ranker → `make eval`. **321.33 s** wall, exit 0. Stages: sample 12.6 s, raw → bronze 7.3 s, silver 13.0 s, gold 28.7 s, embeddings 8.5 s, candidates 93.2 s, ranking 26.3 s, ranking eval 73.8 s, evaluation 17.1 s.
+- `make demo`: synthetic data (400 visitors, 150 items, 8,000 events), no download, through evaluation. **138.82 s** wall, exit 0. CI runs it on every push (`demo` job).
+- `make check`: ruff, mypy `--strict` and 105 tests. Qdrant integration tests run against a service container in CI.
