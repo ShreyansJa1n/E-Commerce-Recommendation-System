@@ -124,3 +124,35 @@ def test_version_flip_is_picked_up(client, store: RecStore) -> None:
     r = c.get("/recommendations/1").json()
     assert r["version"] == "v2" and r["items"][0]["item_id"] == 77
     assert c.get("/similar/5").json()["collection"] == "items_2"
+
+
+def test_startup_warms_popularity_cache(store: RecStore, monkeypatch) -> None:
+    """A worker that never served a request must still have the fallback after startup."""
+    rec = Recommender(store, FakeVectors(), version_ttl_s=0)
+    with TestClient(create_app(rec)) as c:  # runs the lifespan startup
+        assert rec._popular  # warmed without any request
+
+        def boom(*_a, **_k):
+            raise redis.ConnectionError("down")
+
+        monkeypatch.setattr(rec.store, "current_version", boom)
+        r = c.get("/recommendations/1").json()
+        assert r["source"] == "popular_degraded" and len(r["items"]) == 2
+
+
+def test_circuit_breaker_skips_redis_after_failure(client, monkeypatch) -> None:
+    c, rec, _ = client
+    c.get("/recommendations/1")
+    calls = {"n": 0}
+
+    def boom(*_a, **_k):
+        calls["n"] += 1
+        raise redis.ConnectionError("down")
+
+    monkeypatch.setattr(rec.store, "current_version", boom)
+    for _ in range(5):
+        assert c.get("/recommendations/1").json()["source"] == "popular_degraded"
+    assert calls["n"] == 1  # only the first request touched Redis
+    rec._redis_open_until = 0.0  # breaker re-closes after breaker_s
+    monkeypatch.undo()
+    assert c.get("/recommendations/1").json()["source"] == "personalized"

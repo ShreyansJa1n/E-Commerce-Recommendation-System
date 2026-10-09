@@ -16,6 +16,7 @@ dependencies = [
     "pyarrow>=17",
     "matplotlib>=3.9",
     "redis>=5.0",
+    "prometheus-client>=0.20",
 ]
 
 [dependency-groups]
@@ -70,7 +71,8 @@ select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]
 # Generated-report text and figure labels (markdown tables, typographic minus signs).
 "src/recsys/eval/report.py" = ["E501", "RUF001"]
 "src/recsys/eval/figures.py" = ["E501", "RUF001"]
-"src/recsys/serving/*.py" = ["B008"]  # FastAPI Path()/Query() defaults are idiomatic
+"src/recsys/serving/*.py" = ["B008"]
+"docker/grafana/build_dashboard.py" = ["E501"]  # PromQL / panel definitions  # FastAPI Path()/Query() defaults are idiomatic
 
 [tool.mypy]
 python_version = "3.12"

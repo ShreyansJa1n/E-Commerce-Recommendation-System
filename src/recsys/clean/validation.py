@@ -16,6 +16,8 @@ from typing import Any
 from pyspark.sql import Column, DataFrame
 from pyspark.sql import functions as F
 
+from recsys.observability import pipeline_metrics
+
 
 class Severity(StrEnum):
     ERROR = "error"
@@ -104,6 +106,9 @@ class ValidationReport:
         directory.mkdir(parents=True, exist_ok=True)
         out = directory / f"{self.table}.json"
         out.write_text(json.dumps(self.to_dict(), indent=2) + "\n")
+        pipeline_metrics.push_validation(
+            self.table, len(self.errors), len(self.warnings), self.total_rows
+        )
         return out
 
     def raise_on_error(self) -> None:

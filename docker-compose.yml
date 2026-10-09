@@ -1,4 +1,5 @@
-# Local services: Qdrant (vectors), Redis (precomputed recs), the API. Phase 8 adds monitoring.
+# Local stack: Qdrant (vectors), Redis (precomputed recs), the API, and monitoring
+# (Prometheus + Pushgateway + Grafana). `make up` starts everything.
 name: recsys
 
 services:
@@ -46,6 +47,45 @@ services:
       qdrant:
         condition: service_healthy
 
+  pushgateway:
+    image: prom/pushgateway:v1.11.4
+    ports:
+      - "9091:9091"
+
+  prometheus:
+    image: prom/prometheus:v3.15.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=7d
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./docker/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    depends_on:
+      - api
+      - pushgateway
+
+  grafana:
+    image: grafana/grafana:13.2.3
+    ports:
+      - "3000:3000"
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_SECURITY_ADMIN_PASSWORD: admin  # local only
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/recsys.json
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+    volumes:
+      - ./docker/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./docker/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+
 volumes:
   qdrant_storage:
   redis_data:
+  prometheus_data:
+  grafana_data:

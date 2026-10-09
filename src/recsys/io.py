@@ -13,6 +13,8 @@ from typing import Any
 
 from pyspark.sql import DataFrame, SparkSession
 
+from recsys.observability import pipeline_metrics
+
 log = logging.getLogger(__name__)
 
 
@@ -52,8 +54,12 @@ class StageReport:
 def timed_stage(stage: str) -> Iterator[StageReport]:
     report = StageReport(stage=stage)
     start = time.perf_counter()
+    ok = False
     try:
         yield report
+        ok = True
     finally:
         report.seconds = round(time.perf_counter() - start, 2)
-        log.info("stage=%s seconds=%.2f rows=%s", stage, report.seconds, report.rows)
+        log.info("stage=%s seconds=%.2f rows=%s ok=%s", stage, report.seconds, report.rows, ok)
+        if ok:  # only successful runs update the "last success" metrics
+            pipeline_metrics.push_stage(stage, report.seconds, report.rows)

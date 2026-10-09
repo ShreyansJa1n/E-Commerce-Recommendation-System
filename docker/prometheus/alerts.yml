@@ -1,0 +1,64 @@
+# Alert rules (see docs/RUNBOOK.md for the response to each). No Alertmanager is wired
+# up locally; firing alerts are visible at http://localhost:9090/alerts.
+groups:
+  - name: recsys-api
+    rules:
+      - alert: RecsysRedisDown
+        expr: min(recsys_dependency_up{dependency="redis"}) == 0
+        for: 1m
+        labels: {severity: critical}
+        annotations:
+          summary: API cannot reach Redis; serving cached popularity (popular_degraded).
+      - alert: RecsysQdrantDown
+        expr: min(recsys_dependency_up{dependency="qdrant"}) == 0
+        for: 1m
+        labels: {severity: warning}
+        annotations:
+          summary: /similar is returning 503 (Qdrant unreachable).
+      - alert: RecsysHighFallbackRate
+        expr: |
+          sum(rate(recsys_recommendations_served_total{source!="personalized"}[10m]))
+            / sum(rate(recsys_recommendations_served_total[10m])) > 0.9
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: Over 90% of requests get popularity instead of personalized lists.
+      - alert: RecsysDegradedServing
+        expr: sum(rate(recsys_recommendations_served_total{source="popular_degraded"}[5m])) > 0
+        for: 2m
+        labels: {severity: critical}
+        annotations:
+          summary: Requests are served from the in-process popularity copy.
+      - alert: RecsysSnapshotStale
+        expr: max(recsys_snapshot_age_seconds) > 36 * 3600
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: Live recommendation snapshot is older than 36h (daily job missed).
+      - alert: RecsysHighLatencyP99
+        expr: |
+          histogram_quantile(0.99, sum by (le) (rate(recsys_http_request_duration_seconds_bucket{route!="/health"}[5m]))) > 0.1
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: API p99 latency above 100 ms.
+      - alert: RecsysHigh5xxRate
+        expr: |
+          sum(rate(recsys_http_request_duration_seconds_count{status=~"5.."}[5m]))
+            / sum(rate(recsys_http_request_duration_seconds_count[5m])) > 0.01
+        for: 5m
+        labels: {severity: critical}
+        annotations:
+          summary: More than 1% of API requests fail with 5xx.
+  - name: recsys-pipeline
+    rules:
+      - alert: RecsysValidationFailures
+        expr: sum(recsys_validation_failed_checks{severity="error"}) > 0
+        labels: {severity: critical}
+        annotations:
+          summary: A data-quality check with error severity failed; the stage was stopped.
+      - alert: RecsysPipelineStale
+        expr: time() - max(recsys_pipeline_last_success_timestamp_seconds{stage="serving_load"}) > 36 * 3600
+        labels: {severity: warning}
+        annotations:
+          summary: serving_load has not succeeded in 36h.

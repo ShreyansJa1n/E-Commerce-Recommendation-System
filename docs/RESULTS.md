@@ -363,5 +363,23 @@ Snapshot published by `make serve-load ENV=base` in 13.05 s (24.10 s wall): vers
 
 Latency is client-side and includes HTTP over the Docker port forward. Personalized and fallback requests cost the same (one or two Redis GETs). `/similar` adds a Qdrant point lookup plus an HNSW query.
 
+## Observability (Phase 8)
+Measured 2026-10-09, Phase 8 commit. `make up` brings up Qdrant, Redis, the API, Pushgateway, Prometheus v3.15.0 and Grafana 13.2.3. All four scrape targets (api, pushgateway, qdrant, prometheus) report `up`, and 9 alert rules load (7 API, 2 pipeline).
+
+![Grafana dashboard](figures/grafana_dashboard.png)
+
+*Screenshot of the provisioned dashboard (`docker/grafana/dashboards/recsys.json`) during steady Locust traffic, including both Redis-outage drills below.*
+
+- **Pipeline metrics:** `RECSYS_PUSHGATEWAY=http://localhost:9091 make data ENV=sample` (287.42 s wall) plus `make serve-load ENV=base` pushed durations for 10 stages, row counts per table, and validation results: 0 failed checks at error or warn level, about 4M rows validated.
+- **Request IDs and logs:** an `X-Request-ID: test-123` header shows up in that request's JSON log line, and requests without one get a generated id, which is echoed in the response header.
+- **Cache hit rate** (personalized share) reads 46.8–49.9% under the load test's 50/50 known/unknown visitor mix, as expected. Steady-load p95 on the dashboard: 4.8 ms.
+
+**Redis-outage drills:**
+1. **Redis stopped for ~75 s under 250 req/s of Locust traffic.** `RecsysRedisDown` fired, Locust recorded 0 failed requests and responses switched to `popular_degraded`. A fresh `curl` got **503** because the worker handling it had never cached the popularity list (the cache was filled lazily on first request). Max latency was 505 ms, matching the 0.5 s Redis socket timeout.
+   - **Fixes:** every worker warms its cache at startup (FastAPI lifespan), and a 5 s circuit breaker serves the cached list without retrying Redis per request. Both are covered by tests.
+2. **After the fixes,** 200 sequential fresh-connection requests during an outage: **200 × HTTP 200**, p50 1.4 ms, p95 2.1 ms, max 15.4 ms. Serving went back to `personalized` within seconds of Redis restarting.
+
+**Fix found here:** the API image was **2.66 GB**, because `uv sync --group serving` still installed the project's main dependencies (PySpark, gensim, LightGBM). With `--only-group serving` it is **629 MB**, and those packages are verified absent. The Phase 7 load test ran on the larger image; the request code path is identical. The oversized image plus 12.95 GB of Docker build cache filled the disk mid-build (426 MB free, OrbStack crashed). Pruning the build cache freed 6.4 GB.
+
 ## Pipeline performance (Phase 9)
 _Not yet measured._

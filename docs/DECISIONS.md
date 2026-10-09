@@ -82,3 +82,14 @@ Short ADRs: what, why, trade-offs.
 - **Degraded mode:** the API keeps an in-process copy of the last popularity list and serves it (`popular_degraded`) if Redis is down. If Qdrant is down, `/similar` returns 503 rather than guessing.
 - **Scope limit:** only visitors who appear in the test label window have ranker lists (14,839), because Phase 3–5 generated candidates for label-window visitors (ADR-008). A production job would run candidate generation and scoring for every recently active visitor at the snapshot cutoff. Unknown visitors correctly fall back to popularity either way.
 - **Image:** the API image installs only the `serving` dependency group (no Spark or JVM) and runs as a non-root user with a healthcheck.
+
+## ADR-013: Observability: Prometheus metrics, Pushgateway for batch, JSON logs
+- **API:** `prometheus_client` in multiprocess mode, because 4 uvicorn workers each have a registry. `/metrics` aggregates their shared files, and the container clears the directory on start.
+  - Latency histogram by route template, method and status (templates keep label cardinality bounded).
+  - Recommendations by `source` (personalized share = cache hit rate; fallback and degraded rates).
+  - Dependency errors and up gauges, plus snapshot age, users and version.
+- **Batch pipeline:** stages can't be scraped, so `timed_stage` pushes duration, row counts and last-success time to a Pushgateway on success. Validation reports push failed error/warn check counts. Pushing is opt-in (`RECSYS_PUSHGATEWAY`) and never fails a stage.
+- **Logs:** stdlib JSON formatter with a contextvar request id taken from `X-Request-ID` or generated, and one line per request with route, status and duration.
+- **Alerts:** Prometheus rules for Redis/Qdrant down, degraded serving, fallback share > 90%, stale snapshot or pipeline (36 h), p99 > 100 ms, 5xx > 1%, and validation failures. No Alertmanager locally; each alert maps to a RUNBOOK section.
+- **Resilience, from a failure drill:** per-worker startup warm-up of the popularity fallback, and a 5 s Redis circuit breaker (RESULTS.md, Phase 8).
+- **Trade-offs:** Pushgateway keeps the *last* value per stage, so it has no history of failed runs beyond the missing "last success". A real deployment would also use an exporter for Redis, and a scheduler (Airflow etc.) for run history.

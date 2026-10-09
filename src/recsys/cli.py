@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
-import logging
+import os
 from collections.abc import Callable
 from dataclasses import asdict
 
@@ -21,6 +21,7 @@ from recsys.features import pipeline as features
 from recsys.features.contract import render_markdown
 from recsys.ingest import raw_to_bronze, sample
 from recsys.io import StageReport
+from recsys.observability.logging import configure as configure_logging
 from recsys.ranking import pipeline as ranking
 from recsys.serving import loader as serving
 from recsys.spark import get_spark
@@ -52,8 +53,9 @@ def main(argv: list[str] | None = None) -> None:
     )
     args = parser.parse_args(argv)
 
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    configure_logging()
     cfg = load_config(args.env)
+    os.environ.setdefault("RECSYS_ENV", cfg.env)  # label for pushed pipeline metrics
     if args.sources:
         sources = [x.strip() for x in args.sources.split(",") if x.strip()]
         cfg = cfg.model_copy(
