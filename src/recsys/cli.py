@@ -14,6 +14,8 @@ from recsys.candidates import pipeline as candidates
 from recsys.candidates import sweep
 from recsys.clean import catalog, events
 from recsys.config import REPO_ROOT, Config, load_config
+from recsys.embeddings import pipeline as embeddings
+from recsys.embeddings import vector_store
 from recsys.features import pipeline as features
 from recsys.features.contract import render_markdown
 from recsys.ingest import raw_to_bronze, sample
@@ -26,7 +28,10 @@ STAGES: dict[str, list[Stage]] = {
     "bronze": [raw_to_bronze.run],
     "silver": [events.run, catalog.run],
     "gold": [features.run],
+    "embeddings": [embeddings.run],
     "candidates": [candidates.run],
+    "vectors-load": [vector_store.load],
+    "vectors-bench": [vector_store.benchmark],
     "als-sweep": [sweep.run],
 }
 
@@ -35,10 +40,18 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="recsys")
     parser.add_argument("stage", choices=[*STAGES, "sample", "contract"])
     parser.add_argument("--env", default=None, help="config env (default: $RECSYS_ENV or base)")
+    parser.add_argument(
+        "--sources", default=None, help="candidates: comma-separated subset of sources to rebuild"
+    )
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     cfg = load_config(args.env)
+    if args.sources:
+        sources = [x.strip() for x in args.sources.split(",") if x.strip()]
+        cfg = cfg.model_copy(
+            update={"candidates": cfg.candidates.model_copy(update={"sources": sources})}
+        )
     if args.stage == "contract":
         out = REPO_ROOT / "docs" / "feature_contract.md"
         out.write_text(render_markdown(load_config("base")))

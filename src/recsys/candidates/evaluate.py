@@ -77,3 +77,37 @@ def evaluate(
     cands.unpersist()
     lab.unpersist()
     return rows
+
+
+def leave_one_out(
+    candidates: DataFrame, labels: DataFrame, split: str, ks: Sequence[int], min_relevance: int = 1
+) -> list[dict[str, Any]]:
+    """Union recall with all sources vs. without each one (its marginal contribution)."""
+    cands = candidates.where(F.col("split") == split).cache()
+    lab = labels.where((F.col("split") == split) & (F.col("relevance") >= min_relevance)).cache()
+    sources = sorted(r.source for r in cands.select("source").distinct().collect())
+    rows: list[dict[str, Any]] = []
+    for segment, cond in segments().items():
+        truth = lab.where(cond)
+        full = union_recall(
+            cands.join(truth.select("visitor_id").distinct(), "visitor_id", "left_semi"), truth, ks
+        )
+        for source in sources:
+            rest = cands.where(F.col("source") != source)
+            without = union_recall(rest, truth, ks)
+            for k in ks:
+                rows.append(
+                    {
+                        "split": split,
+                        "segment": segment,
+                        "min_relevance": min_relevance,
+                        "removed": source,
+                        "k": k,
+                        "union_recall": full[k],
+                        "union_recall_without": without[k],
+                        "drop": full[k] - without[k],
+                    }
+                )
+    cands.unpersist()
+    lab.unpersist()
+    return rows

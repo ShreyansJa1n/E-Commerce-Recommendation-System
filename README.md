@@ -15,12 +15,14 @@ architecture decisions, and [docs/RESULTS.md](docs/RESULTS.md) for measured resu
 | 1 | Ingest and clean (bronze → silver) | done |
 | 2 | Feature engineering (silver → gold) | done |
 | 3 | Candidate generation | done |
-| 4 | Embeddings and vector search | not started |
+| 4 | Embeddings and vector search | done |
+| 5 | Ranking | not started |
 
 ## Prerequisites
 
 - [uv](https://docs.astral.sh/uv/) (installs Python 3.12 automatically)
 - Java 17 or 21 on `PATH` (Spark 4.0 requires Java 17+)
+- Docker (OrbStack or Docker Desktop) for Qdrant: `make up`
 - macOS only, for later phases: `brew install libomp` (LightGBM)
 
 ## Quickstart
@@ -43,6 +45,9 @@ make sample            # data/raw -> data/sample/raw (deterministic 5% of visito
 make data              # raw -> bronze -> silver -> gold -> candidates on the sample (ENV=sample is the default)
 make data ENV=base     # same on the full dataset
 make als-sweep ENV=base  # ALS hyperparameter sweep on the validation cutoff
+make candidates ENV=base SOURCES=item2vec   # rebuild one source, keep the others
+make up                # start Qdrant (docker compose)
+make vectors-load ENV=base && make vectors-bench ENV=base   # Qdrant vs exact search
 make contract          # regenerate docs/feature_contract.md
 ```
 
@@ -60,8 +65,10 @@ make contract          # regenerate docs/feature_contract.md
 | gold | `cutoffs` | Train/val/test cutoffs T and label windows |
 | gold | `user_features`, `user_category_affinity`, `item_features` | Point-in-time features at each cutoff, from events before T only. See [feature contract](docs/feature_contract.md) |
 | gold | `labels` | Future interactions in `[T, label_end)` with graded relevance and cold/repeat flags |
-| gold | `candidates` | Top-100 per visitor per source (`popular_global`, `popular_category`, `recent_items`, `cooccurrence`, `als`), partitioned by `cutoff_date`/`source` (ADR-008) |
+| gold | `candidates` | Top-100 per visitor per source (`popular_global`, `popular_category`, `recent_items`, `cooccurrence`, `als`, `item2vec`), partitioned by `cutoff_date`/`source` (ADR-008) |
 | gold | `item_neighbors` | Session co-occurrence neighbors (cosine) per item and cutoff |
+| gold | `item_embeddings` | item2vec vectors (64-d, L2-normalized) per item and cutoff (ADR-009) |
+| Qdrant | `items_<cutoff>` | The benchmark cutoff's vectors + category/availability payload for similar-item and user-vector search |
 
 Ranking metrics (Precision/Recall/NDCG/MAP/hit rate @K) live in `recsys.eval.metrics`, with a
 Spark implementation that is cross-checked against a plain-Python reference.

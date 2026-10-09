@@ -146,13 +146,21 @@ class ALSSweepConfig(BaseModel):
     alpha: list[float] = Field(min_length=1)
 
 
+class Item2VecCandidatesConfig(BaseModel):
+    seed_items: int = Field(gt=0)
+    seed_half_life_days: float = Field(gt=0)
+    query_chunk: int = Field(gt=0)
+
+
 class CandidatesConfig(BaseModel):
+    sources: list[str] = Field(min_length=1)
     top_n: int = Field(gt=0)
     eval_ks: list[int] = Field(min_length=1)
     popularity: PopularityConfig
     category: CategoryCandidatesConfig
     history: HistoryCandidatesConfig
     cooccurrence: CooccurrenceConfig
+    item2vec: Item2VecCandidatesConfig
     als: ALSConfig
     als_sweep: ALSSweepConfig
 
@@ -161,6 +169,38 @@ class CandidatesConfig(BaseModel):
         if max(self.eval_ks) > self.top_n:
             raise ValueError("eval_ks must not exceed top_n")
         return self
+
+
+class EmbeddingsConfig(BaseModel):
+    vector_size: int = Field(gt=0)
+    window: int = Field(gt=0)
+    min_count: int = Field(ge=1)
+    negative: int = Field(ge=1)
+    ns_exponent: float
+    sample: float = Field(ge=0)
+    epochs: int = Field(gt=0)
+    min_session_items: int = Field(ge=2)
+    seed: int = 42
+
+
+class VectorBenchmarkConfig(BaseModel):
+    split: str
+    n_queries: int = Field(gt=0)
+    k: int = Field(gt=0)
+    batch_size: int = Field(gt=0)
+    seed: int = 7
+    ef_sweep: list[int] = Field(default_factory=list)
+
+
+class VectorSearchConfig(BaseModel):
+    qdrant_url: str
+    collection_prefix: str
+    hnsw_m: int = Field(gt=0)
+    hnsw_ef_construct: int = Field(gt=0)
+    hnsw_full_scan_threshold_kb: int = Field(ge=10)  # Qdrant rejects < 10
+    search_ef: int = Field(gt=0)
+    upload_batch_size: int = Field(gt=0)
+    benchmark: VectorBenchmarkConfig
 
 
 class Config(BaseModel):
@@ -173,6 +213,8 @@ class Config(BaseModel):
     split: SplitConfig
     features: FeatureConfig
     candidates: CandidatesConfig
+    embeddings: EmbeddingsConfig
+    vector_search: VectorSearchConfig
 
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:

@@ -54,6 +54,8 @@ features:
 # Candidate generation (Phase 3). Generated per cutoff for visitors in that cutoff's
 # label window; each source keeps its top_n items per visitor.
 candidates:
+  # Sources to (re)generate; others already on disk are kept. Override with SOURCES=a,b.
+  sources: [popular_global, popular_category, recent_items, cooccurrence, als, item2vec]
   top_n: 100
   eval_ks: [10, 20, 50, 100]
   popularity:
@@ -72,6 +74,10 @@ candidates:
     seed_items: 20
     seed_half_life_days: 7
     salt_buckets: 0          # >0 salts the seed x neighbor join (skew experiment, Phase 9)
+  item2vec:
+    seed_items: 20
+    seed_half_life_days: 7
+    query_chunk: 2048        # user vectors scored per numpy matmul chunk
   als:
     # Chosen by the validation sweep (docs/RESULTS.md, Phase 3): rounds 1 + 2.
     rank: 128
@@ -85,3 +91,36 @@ candidates:
     rank: [32, 64]
     reg_param: [0.01, 0.1]
     alpha: [5.0, 20.0]
+
+# Item embeddings (Phase 4): item2vec (gensim skip-gram, negative sampling) trained per
+# cutoff on sessions before T. workers=1 + a deterministic hash keep reruns identical.
+embeddings:
+  vector_size: 64
+  window: 5
+  min_count: 3
+  negative: 10
+  ns_exponent: 0.75
+  sample: 0.001
+  epochs: 10
+  min_session_items: 2
+  seed: 42
+
+vector_search:
+  qdrant_url: http://localhost:6333
+  collection_prefix: items
+  hnsw_m: 16
+  hnsw_ef_construct: 100
+  # Qdrant brute-forces any segment smaller than this (default 10000 KB). Our ~50k x 64-dim
+  # collection splits into ~2.5 MB segments, so with the default every query was an exact
+  # scan. Keep it low so search (and the benchmark) actually uses the HNSW graph.
+  hnsw_full_scan_threshold_kb: 10
+  search_ef: 128
+  upload_batch_size: 1024
+  benchmark:
+    split: val
+    n_queries: 1000
+    k: 10
+    batch_size: 64
+    seed: 7
+    # hnsw_ef values swept for the recall/latency trade-off (similar_items, user_vector).
+    ef_sweep: [4, 8, 16, 32, 64, 128]

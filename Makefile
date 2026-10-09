@@ -2,7 +2,7 @@
 UV ?= uv
 ENV ?= sample
 
-.PHONY: help setup lint format typecheck test check sample bronze silver gold candidates als-sweep data contract clean
+.PHONY: help setup lint format typecheck test check sample bronze silver gold embeddings candidates als-sweep up down vectors-load vectors-bench data contract clean
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-12s %s\n", $$1, $$2}'
@@ -42,13 +42,28 @@ silver: ## Bronze -> silver + validation reports (ENV=sample|base)
 gold: ## Silver -> gold features, labels, cutoffs (ENV=sample|base)
 	$(RUN) gold --env $(ENV)
 
-candidates: ## Candidate sources per cutoff + validation metrics (ENV=sample|base)
-	$(RUN) candidates --env $(ENV)
+embeddings: ## item2vec embeddings per cutoff (ENV=sample|base)
+	$(RUN) embeddings --env $(ENV)
+
+candidates: ## Candidate sources per cutoff + validation metrics (ENV=, SOURCES=a,b to rebuild a subset)
+	$(RUN) candidates --env $(ENV) $(if $(SOURCES),--sources $(SOURCES))
+
+up: ## Start local services (docker compose)
+	docker compose up -d --wait
+
+down: ## Stop local services
+	docker compose down
+
+vectors-load: ## Load the benchmark cutoff's item embeddings into Qdrant (needs `make up`)
+	$(RUN) vectors-load --env $(ENV)
+
+vectors-bench: ## Qdrant vs exact search: recall@k and latency (needs `make vectors-load`)
+	$(RUN) vectors-bench --env $(ENV)
 
 als-sweep: ## ALS hyperparameter sweep on the validation cutoff (ENV=sample|base)
 	$(RUN) als-sweep --env $(ENV)
 
-data: bronze silver gold candidates ## Raw -> candidates end to end
+data: bronze silver gold embeddings candidates ## Raw -> candidates end to end
 
 contract: ## Regenerate docs/feature_contract.md from the contract specs
 	$(RUN) contract

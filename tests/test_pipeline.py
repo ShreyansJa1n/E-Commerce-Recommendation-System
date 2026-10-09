@@ -9,6 +9,7 @@ from pyspark.sql import functions as F
 from recsys.candidates import pipeline as candidates
 from recsys.clean import catalog, events
 from recsys.config import Config
+from recsys.embeddings import pipeline as embeddings
 from recsys.features import contract
 from recsys.features import pipeline as features
 from recsys.ingest import raw_to_bronze, sample
@@ -24,6 +25,7 @@ def built(spark: SparkSession, synth_env: tuple[Config, SynthStats]) -> tuple[Co
     events.run(spark, cfg)
     catalog.run(spark, cfg)
     features.run(spark, cfg)
+    embeddings.run(spark, cfg)
     candidates.run(spark, cfg)
     return cfg, stats
 
@@ -186,7 +188,9 @@ def test_candidates_written_per_cutoff_and_source(
     sources = {r.source for r in cands.select("source").distinct().collect()}
     # Co-occurrence can be empty on tiny synthetic data (no pair repeats across sessions);
     # the run report must still account for every source at every cutoff.
-    assert set(candidates.SOURCES) - {"cooccurrence"} <= sources <= set(candidates.SOURCES)
+    # item2vec too: synthetic sessions are short and min_count may leave no vocabulary.
+    sparse = {"cooccurrence", "item2vec"}
+    assert set(candidates.SOURCES) - sparse <= sources <= set(candidates.SOURCES)
     report = json.loads((gold / "_reports" / "candidates.json").read_text())
     expected_keys = {
         f"{c}/{s}" for c in ("2015-05-17", "2015-05-24", "2015-05-27") for s in candidates.SOURCES
@@ -202,3 +206,55 @@ def test_candidates_written_per_cutoff_and_source(
     metrics = json.loads((gold / "_reports" / "candidates_val_metrics.json").read_text())
     assert {m["source"] for m in metrics} == {*sources, "union"}
     assert all(m["split"] == "val" for m in metrics)
+
+
+def test_embeddings_written_per_cutoff(
+    spark: SparkSession, built: tuple[Config, SynthStats]
+) -> None:
+    cfg, _ = built
+    gold = cfg.paths.resolved().gold
+    report = json.loads((gold / "_reports" / "embeddings.json").read_text())
+    assert [c["cutoff_date"] for c in report["extra"]["per_cutoff"]] == [
+        "2015-05-17",
+        "2015-05-24",
+        "2015-05-27",
+    ]
+    emb = read_table(spark, gold / "item_embeddings")
+    if emb.count():
+        sizes = {r.n for r in emb.select(F.size("vector").alias("n")).distinct().collect()}
+        assert sizes == {cfg.embeddings.vector_size}
+
+
+def test_rebuilding_a_source_subset_keeps_the_others(
+    spark: SparkSession, built: tuple[Config, SynthStats]
+) -> None:
+    cfg, _ = built
+    gold = cfg.paths.resolved().gold
+    before = read_table(spark, gold / "candidates").where(F.col("source") != "recent_items")
+    before_rows = sorted(
+        map(
+            tuple, before.select("cutoff_date", "source", "visitor_id", "item_id", "rank").collect()
+        )
+    )
+    subset = cfg.model_copy(
+        update={"candidates": cfg.candidates.model_copy(update={"sources": ["recent_items"]})}
+    )
+    candidates.run(spark, subset)
+    after = read_table(spark, gold / "candidates")
+    assert {r.source for r in after.select("source").distinct().collect()} >= {
+        "recent_items",
+        "als",
+    }
+    after_rows = sorted(
+        map(
+            tuple,
+            after.where(F.col("source") != "recent_items")
+            .select("cutoff_date", "source", "visitor_id", "item_id", "rank")
+            .collect(),
+        )
+    )
+    assert after_rows == before_rows
+    ablation = json.loads((gold / "_reports" / "candidates_val_ablation.json").read_text())
+    assert ablation and all(
+        r["union_recall_without"] <= r["union_recall"] + 1e-12 for r in ablation
+    )

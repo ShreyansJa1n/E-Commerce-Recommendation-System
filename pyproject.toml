@@ -9,6 +9,8 @@ dependencies = [
     "pyyaml>=6.0",
     "pydantic>=2.7",
     "numpy>=1.26",
+    "gensim>=4.3",
+    "qdrant-client>=1.12",
 ]
 
 [dependency-groups]
@@ -51,5 +53,5 @@ files = ["src"]
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["pyspark.*", "chispa.*"]
+module = ["pyspark.*", "chispa.*", "gensim.*"]
 ignore_missing_imports = true

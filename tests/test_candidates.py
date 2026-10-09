@@ -215,3 +215,23 @@ def test_union_recall_and_evaluate(spark: SparkSession) -> None:
     assert get[("a", "all", 2)]["coverage"] == pytest.approx(1 / 3)
     assert get[("b", "all", 1)]["coverage"] == pytest.approx(2 / 3)
     assert get[("union", "warm", 2)]["recall"] == pytest.approx(1.0)
+
+
+def test_leave_one_out(spark: SparkSession) -> None:
+    from recsys.candidates.evaluate import leave_one_out
+
+    cands = spark.createDataFrame(
+        [("val", "a", 1, 10, 1.0, 1), ("val", "b", 1, 11, 1.0, 1), ("val", "b", 1, 10, 0.5, 2)],
+        "split string, source string, visitor_id int, item_id int, score double, rank int",
+    )
+    labels = spark.createDataFrame(
+        [("val", 1, 10, 1, True), ("val", 1, 11, 1, True)],
+        "split string, visitor_id int, item_id int, relevance int, visitor_has_history boolean",
+    )
+    rows = {
+        (r["segment"], r["removed"], r["k"]): r for r in leave_one_out(cands, labels, "val", [1, 2])
+    }
+    assert rows[("all", "a", 1)]["union_recall"] == pytest.approx(1.0)
+    assert rows[("all", "a", 1)]["union_recall_without"] == pytest.approx(0.5)  # b@1 = item 11
+    assert rows[("all", "b", 2)]["drop"] == pytest.approx(0.5)
+    assert rows[("all", "a", 2)]["drop"] == pytest.approx(0.0)  # b covers item 10 at rank 2

@@ -8,3 +8,6 @@ paths:
 spark:
   driver_memory: 2g
   shuffle_partitions: 4
+
+vector_search:
+  collection_prefix: items_sample

@@ -123,8 +123,86 @@ Round 1 (`make als-sweep ENV=base`, 205.98 s): rank × reg × alpha grid. Its be
 
 Chosen: **rank 128, reg 0.01, alpha 40** (best R@100). It's still on the grid edge: each rank doubling roughly quadruples training time, and the first round-2 attempt filled the disk at rank 128 (fixed by checkpointing ALS every 5 iterations and running Spark's cleaner every minute). Larger ranks are left for Phase 9.
 
-## Vector retrieval (Phase 4)
-_Not yet measured._
+## Embeddings and vector search (Phase 4)
+Measured 2026-10-09, Phase 4 commit, full data. Qdrant v1.19.2 runs in Docker (OrbStack) on the same M4. qdrant-client 1.19.1 talks to it over HTTP on localhost.
+
+### item2vec training (`make embeddings ENV=base`, 109 s wall for 4 cutoffs)
+gensim 4.4.0 skip-gram with negative sampling: dim 64, window 5, negative 10, min_count 3, 10 epochs, single-threaded and deterministic. Trained per cutoff on sessions before T that have ≥ 2 distinct items. Neighbor same-category@10 = share of an item's 10 nearest neighbors (exact) that share its category at T, over 2,000 sampled items.
+
+| cutoff | sessions | tokens | vocab (items) | train s | neighbor same-category@10 |
+|---|---:|---:|---:|---:|---:|
+| 2015-07-24 | 164,658 | 624,396 | 41,588 | 13.49 | 46.1% |
+| 2015-08-07 | 195,104 | 733,787 | 46,783 | 16.54 | 49.1% |
+| 2015-08-21 | 217,407 | 813,720 | 50,056 | 20.75 | 50.8% |
+| 2015-09-04 | 240,229 | 893,655 | 53,328 | 21.74 | 50.7% |
+
+Comparison at the validation cutoff, on 2,000 items that have both kinds of neighbors: item2vec neighbors share the category 62.0% of the time, co-occurrence neighbors 79.5%. Co-occurrence neighbors are sparser, though: 8,181 neighbors with a category vs 19,832 for item2vec for the same items, and 26,788 items have co-occurrence neighbors vs 50,056 with an embedding.
+
+### Qdrant: approximate vs exact search (`make vectors-load` + `make vectors-bench`, ENV=base)
+Collection `items_20150821`: 50,056 points, cosine, HNSW m=16, ef_construct=100, full_scan_threshold=10 KB. Upload took 2.35 s, plus 2.01 s until fully indexed. Queries use k = 10, the query item or the user's seed items are excluded, and hnsw_ef = 128. Latency is client-side wall time for one query over HTTP to localhost. `batch_qps` uses `query_batch_points` with 64 per request. `exact_numpy_qps` is in-process brute force on the same queries, which is the offline pipeline's index.
+
+| scenario | queries | recall@10 vs exact | p50 ms | p95 ms | p99 ms | sequential QPS | batch QPS | exact NumPy QPS |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| similar_items | 1000 | 0.9964 | 1.724 | 4.774 | 5.869 | 450.0 | 3713.1 | 2215.7 |
+| similar_items_available_only | 1000 | 0.9838 | 1.369 | 2.442 | 3.22 | 656.6 | 3533.5 | 5629.0 |
+| user_vector | 1000 | 0.9986 | 1.554 | 3.687 | 5.203 | 518.8 | 3693.3 | 2383.3 |
+
+`hnsw_ef` trade-off (ef below k = 10 behaves like ef = 10):
+
+| hnsw_ef | similar-items recall@10 | p50 ms | p99 ms | user-vector recall@10 | p50 ms | p99 ms |
+|---:|---:|---:|---:|---:|---:|---:|
+| 4 | 0.9364 | 1.683 | 5.511 | 0.9533 | 1.325 | 3.045 |
+| 8 | 0.9364 | 1.783 | 6.315 | 0.9533 | 1.7 | 5.73 |
+| 16 | 0.9614 | 1.46 | 7.976 | 0.9729 | 1.601 | 4.616 |
+| 32 | 0.9815 | 1.408 | 5.241 | 0.9885 | 2.181 | 6.146 |
+| 64 | 0.9918 | 1.595 | 4.664 | 0.9955 | 2.305 | 6.769 |
+| 128 | 0.9964 | 1.507 | 6.548 | 0.9986 | 2.853 | 6.91 |
+
+**First run was invalid, kept here for the record.** With Qdrant's default `full_scan_threshold` (10,000 KB), the collection's 5 segments (about 2.5 MB each) were all below the threshold, so the planner brute-forced every query. The run reported recall = 1.0 at every ef (p50 1.884 ms similar-items, 1.634 ms user-vector), which measures an exact scan, not HNSW. The threshold is now configurable (`vector_search.hnsw_full_scan_threshold_kb`). `tests/test_qdrant.py::test_low_ef_hnsw_is_approximate` fails if a tiny ef ever returns perfect recall again. At this collection size, latency is dominated by the HTTP round trip, so ef barely moves p50.
+
+### item2vec as a candidate source (validation, `make candidates ENV=base SOURCES=item2vec`, 245.88 s wall)
+User vector = decayed weighted mean of the visitor's top 20 recent items' vectors. Seeds are excluded, and ranking uses exact search. Rows per cutoff: 1,065,400, 1,005,600, 1,077,700, 1,133,100.
+
+Warm visitors, relevance ≥ 1:
+
+| source | coverage | R@10 | R@20 | R@50 | R@100 | NDCG@10 |
+|---|---:|---:|---:|---:|---:|---:|
+| `recent_items` | 100.0% | 0.1924 | 0.1935 | 0.1941 | 0.1943 | 0.1869 |
+| `popular_category` | 91.4% | 0.0815 | 0.1098 | 0.1556 | 0.1876 | 0.0515 |
+| `als` | 42.4% | 0.0527 | 0.0663 | 0.0868 | 0.1022 | 0.0367 |
+| `item2vec` | 75.7% | 0.0135 | 0.0190 | 0.0323 | 0.0434 | 0.0085 |
+| `cooccurrence` | 61.7% | 0.0195 | 0.0245 | 0.0306 | 0.0322 | 0.0136 |
+| `popular_global` | 100.0% | 0.0079 | 0.0128 | 0.0205 | 0.0316 | 0.0049 |
+| union of all sources | 100.0% | 0.2392 | 0.2565 | 0.2838 | 0.3067 | — |
+
+Warm visitors, relevance ≥ 2:
+
+| source | coverage | R@10 | R@20 | R@50 | R@100 | NDCG@10 |
+|---|---:|---:|---:|---:|---:|---:|
+| `recent_items` | 100.0% | 0.2466 | 0.2535 | 0.2571 | 0.2572 | 0.2243 |
+| `popular_category` | 91.4% | 0.1479 | 0.1968 | 0.2373 | 0.2636 | 0.1031 |
+| `als` | 42.4% | 0.1233 | 0.1528 | 0.1773 | 0.2025 | 0.0949 |
+| `item2vec` | 75.7% | 0.0120 | 0.0160 | 0.0235 | 0.0332 | 0.0076 |
+| `cooccurrence` | 61.7% | 0.0176 | 0.0274 | 0.0438 | 0.0551 | 0.0147 |
+| `popular_global` | 100.0% | 0.0259 | 0.0531 | 0.0729 | 0.0956 | 0.0155 |
+| union of all sources | 100.0% | 0.3030 | 0.3440 | 0.3767 | 0.4122 | — |
+
+### Ablation: union recall lost when one source is removed (validation, relevance ≥ 1)
+| removed source | warm R@20 drop | warm R@100 drop | all R@100 drop |
+|---|---:|---:|---:|
+| `recent_items` | 0.0910 | 0.0501 | 0.0050 |
+| `popular_category` | 0.0132 | 0.0236 | 0.0024 |
+| `popular_global` | 0.0071 | 0.0160 | 0.0317 |
+| `item2vec` | 0.0070 | 0.0114 | 0.0011 |
+| `als` | 0.0046 | 0.0084 | 0.0008 |
+| `cooccurrence` | 0.0064 | 0.0029 | 0.0003 |
+
+Warm union recall@100 is 0.3067 with item2vec and 0.2953 without it.
+
+Takeaways:
+- On its own, item2vec is a mid-strength source for warm visitors (R@100 0.043): better than session co-occurrence (0.032), well below ALS (0.102).
+- Its *marginal* contribution is the third largest (warm R@100 −0.0114 when removed), more than ALS (−0.0084). It finds items the other sources miss, and it covers 75.7% of warm visitors vs 42.4% for ALS.
+- For carts and purchases it's weak (R@100 0.033). ALS and category popularity carry that segment.
 
 ## Ranking (Phase 5)
 _Not yet measured._
