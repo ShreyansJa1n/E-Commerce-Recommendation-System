@@ -21,8 +21,9 @@ from recsys.features.split import Cutoff, cutoffs, history
 from recsys.io import StageReport, read_table, timed_stage
 
 
-def _cutoff(cfg: Config) -> Cutoff:
-    (cut,) = [c for c in cutoffs(cfg.split) if c.split == cfg.vector_search.benchmark.split]
+def _cutoff(cfg: Config, split: str | None = None) -> Cutoff:
+    split = split or cfg.vector_search.benchmark.split
+    (cut,) = [c for c in cutoffs(cfg.split) if c.split == split]
     return cut
 
 
@@ -56,9 +57,10 @@ def _payloads(
     return out
 
 
-def load(spark: SparkSession, cfg: Config) -> StageReport:
+def load(spark: SparkSession, cfg: Config, split: str | None = None) -> StageReport:
+    """Load one cutoff's embeddings into Qdrant (default: the benchmark split)."""
     vs = cfg.vector_search
-    cut = _cutoff(cfg)
+    cut = _cutoff(cfg, split)
     gold = cfg.paths.resolved().gold
     name = collection_name(vs.collection_prefix, str(cut.cutoff_date))
     with timed_stage("vectors_load") as report:

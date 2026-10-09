@@ -2,7 +2,7 @@
 UV ?= uv
 ENV ?= sample
 
-.PHONY: help setup lint format typecheck test check sample bronze silver gold embeddings candidates ranking ranking-eval eval als-sweep up down vectors-load vectors-bench data contract clean
+.PHONY: help setup lint format typecheck test check sample bronze silver gold embeddings candidates ranking ranking-eval eval serve-load serve loadtest-ids loadtest openapi als-sweep up down vectors-load vectors-bench data contract clean
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-12s %s\n", $$1, $$2}'
@@ -57,8 +57,28 @@ ranking-eval: ## Re-evaluate the scored ranker vs baselines without retraining (
 eval: ## Offline evaluation: metrics, bootstrap/A-B comparisons, figures, report (ENV=)
 	$(RUN) eval --env $(ENV)
 
+serve-load: ## Publish the serving snapshot to Redis + Qdrant and flip the live version (ENV=)
+	$(RUN) serve-load --env $(ENV)
+
+serve: ## Run the API locally with autoreload (needs `make up` + `make serve-load`)
+	$(UV) run uvicorn recsys.serving.app:app --reload --port 8000
+
+loadtest-ids: ## Sample live user/item ids for the load test (needs a live snapshot)
+	$(UV) run python -m recsys.serving.loadtest_ids
+
+LOAD_USERS ?= 50
+LOAD_TIME ?= 60s
+loadtest: ## Locust load test against $(HOST) (default: the compose API on :8000)
+	mkdir -p data/loadtest
+	$(UV) run locust -f tests/load/locustfile.py --headless -u $(LOAD_USERS) -r $(LOAD_USERS) \
+		-t $(LOAD_TIME) --host $(or $(HOST),http://localhost:8000) --csv data/loadtest/$(or $(RUN_NAME),run) --only-summary
+
+openapi: ## Write the API's OpenAPI schema to docs/openapi.json
+	$(UV) run python -c "import json; from recsys.serving.app import create_app, Recommender; \
+	print(json.dumps(create_app(Recommender(None, None)).openapi(), indent=2))" > docs/openapi.json
+
 up: ## Start local services (docker compose)
-	docker compose up -d --wait
+	docker compose up -d --build --wait
 
 down: ## Stop local services
 	docker compose down

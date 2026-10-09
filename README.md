@@ -18,7 +18,8 @@ architecture decisions, and [docs/RESULTS.md](docs/RESULTS.md) for measured resu
 | 4 | Embeddings and vector search | done |
 | 5 | Ranking | done |
 | 6 | Offline evaluation and experiment simulation | done |
-| 7 | Serving layer | not started |
+| 7 | Serving layer | done |
+| 8 | Observability and ops | not started |
 
 ## Prerequisites
 
@@ -51,7 +52,10 @@ make candidates ENV=base SOURCES=item2vec   # rebuild one source, keep the other
 make ranking ENV=base  # LambdaRank re-ranker: train, score val/test, compare to baselines
 make ranking-eval ENV=base  # re-evaluate without retraining
 make eval ENV=base     # bootstrap / simulated A/B comparisons, figures, docs/EVAL_REPORT.md
-make up                # start Qdrant (docker compose)
+make up                # build + start Qdrant, Redis, and the API (docker compose)
+make serve-load ENV=base   # publish the serving snapshot (Redis + Qdrant), flip the live version
+curl localhost:8000/recommendations/568980?n=5   # see docs/API.md
+make loadtest-ids && make loadtest                 # Locust load test
 make vectors-load ENV=base && make vectors-bench ENV=base   # Qdrant vs exact search
 make contract          # regenerate docs/feature_contract.md
 ```

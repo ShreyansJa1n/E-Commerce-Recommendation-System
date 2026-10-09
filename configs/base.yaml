@@ -171,3 +171,13 @@ evaluation:
   ab_salt: ab-sim-2026-10
   figures_dir: docs/figures
   report_path: docs/EVAL_REPORT.md
+
+# Serving (Phase 7). The batch loader publishes one snapshot (the latest cutoff) to Redis
+# and Qdrant; the API serves it. Policy from docs/EXPERIMENT.md: ranker lists for visitors
+# with history, global popularity for everyone else.
+serving:
+  split: test
+  top_n: 50
+  ttl_hours: 168
+  redis_url: redis://localhost:6379/0
+  key_prefix: recsys

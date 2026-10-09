@@ -339,7 +339,29 @@ Measured 2026-10-09, Phase 6 commit, full data, **test** split. `make eval ENV=b
 ![Recall@K](figures/recall_at_k.png)
 
 ## Serving load test (Phase 7)
-_Not yet measured._
+Measured 2026-10-09, Phase 7 commit. The API runs in Docker (`docker compose up`): `recsys-api` image, uvicorn with 4 workers, Redis 8.10.2, Qdrant 1.19.2. Locust 2.46.7 runs on the **same** M4 laptop. 60 s per run, traffic mix 3:1 recommendations : similar, and recommendations split 50/50 between known returning visitors and unknown ids (popularity fallback). IDs come from `make loadtest-ids` (5,000 live users, 5,000 live items).
+
+Snapshot published by `make serve-load ENV=base` in 13.05 s (24.10 s wall): version `2015-09-04-6b5198912f88-20261009T200112`, 14,839 returning visitors with ranker lists (top 50), plus the 50-item popularity fallback and Qdrant collection `items_20150904` (53,328 items, test cutoff).
+
+**Steady rate (latency run):** 20 users, 50–100 ms think time (`RECSYS_LOADTEST_WAIT=0.1 make loadtest LOAD_USERS=20 RUN_NAME=steady`). The client stayed below Locust's CPU warning.
+
+| endpoint | requests | failures | req/s | p50 ms | p95 ms | p99 ms | p99.9 ms | max ms |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| /recommendations/{id} [personalized] | 5,517 | 0 | 93.4 | 4 | 8 | 11 | 25 | 41 |
+| /recommendations/{id} [fallback] | 5,404 | 0 | 91.5 | 4 | 8 | 11 | 28 | 40 |
+| /similar/{id} | 3,631 | 0 | 61.4 | 8 | 13 | 17 | 33 | 40 |
+| Aggregated | 14,552 | 0 | 246.3 | 5 | 11 | 15 | 29 | 41 |
+
+**Saturation (throughput run):** 50 users, ~0 think time (`make loadtest`). Locust warned that **its own CPU went above 90%**, so this is a lower bound on server capacity and an upper bound on latency (client queueing included).
+
+| endpoint | requests | failures | req/s | p50 ms | p95 ms | p99 ms | p99.9 ms | max ms |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| /recommendations/{id} [personalized] | 62,102 | 0 | 1,068.6 | 8 | 18 | 26 | 56 | 105 |
+| /recommendations/{id} [fallback] | 61,809 | 0 | 1,063.6 | 9 | 19 | 27 | 59 | 106 |
+| /similar/{id} | 41,081 | 0 | 706.9 | 15 | 36 | 52 | 82 | 169 |
+| Aggregated | 164,992 | 0 | 2,839.1 | 10 | 26 | 41 | 68 | 169 |
+
+Latency is client-side and includes HTTP over the Docker port forward. Personalized and fallback requests cost the same (one or two Redis GETs). `/similar` adds a Qdrant point lookup plus an HNSW query.
 
 ## Pipeline performance (Phase 9)
 _Not yet measured._

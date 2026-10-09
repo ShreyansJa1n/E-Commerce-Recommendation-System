@@ -229,6 +229,14 @@ class EvaluationConfig(BaseModel):
     report_path: Path
 
 
+class ServingConfig(BaseModel):
+    split: str
+    top_n: int = Field(gt=0)
+    ttl_hours: int = Field(gt=0)
+    redis_url: str
+    key_prefix: str
+
+
 class Config(BaseModel):
     env: str
     paths: PathsConfig
@@ -243,6 +251,7 @@ class Config(BaseModel):
     vector_search: VectorSearchConfig
     ranking: RankingConfig
     evaluation: EvaluationConfig
+    serving: ServingConfig
 
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:

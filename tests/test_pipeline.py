@@ -310,3 +310,66 @@ def test_eval_writes_report_figures_and_comparisons(built: tuple[Config, SynthSt
     assert {"all"} <= {r["segment"] for r in result["summary"]} <= {"all", "warm", "cold"}
     # Only ~30 synthetic visitors; balance itself is tested on 20k ids in test_eval_stats.
     assert 0 < result["ab_treatment_share"] < 1
+
+
+def test_serving_loader_publishes_policy(
+    spark: SparkSession, built: tuple[Config, SynthStats]
+) -> None:
+    import fakeredis
+
+    from recsys.serving import loader
+    from recsys.serving.store import RecStore
+
+    cfg, _ = built
+    gold = cfg.paths.resolved().gold
+    r = fakeredis.FakeRedis()
+    rep = loader.run(spark, cfg, client=r, load_vectors=False)
+    store = RecStore(r, cfg.serving.key_prefix)
+    v = store.current_version()
+    assert v == rep.extra["version"]
+    cut = loader.serving_cutoff(cfg)
+    # Warm visitors get exactly their ranker list (rank order, top_n).
+    ranked = read_table(spark, gold / "ranked").where(
+        F.col("cutoff_date") == F.lit(cut.cutoff_date)
+    )
+    warm = (
+        read_table(spark, gold / "user_features")
+        .where(F.col("cutoff_date") == F.lit(cut.cutoff_date))
+        .select("visitor_id")
+    )
+    some = (
+        ranked.join(warm, "visitor_id", "left_semi")
+        .select("visitor_id")
+        .distinct()
+        .limit(3)
+        .collect()
+    )
+    for row in some:
+        expected = [
+            int(x.item_id)
+            for x in ranked.where(F.col("visitor_id") == row.visitor_id)
+            .orderBy("rank")
+            .limit(cfg.serving.top_n)
+            .collect()
+        ]
+        assert [i for i, _ in store.user_recs(v, row.visitor_id)] == expected
+    # Cold visitors are not stored; they get the popularity list = popular_global.
+    cold = ranked.join(warm, "visitor_id", "left_anti").select("visitor_id").limit(1).collect()
+    for row in cold:
+        assert store.user_recs(v, row.visitor_id) is None
+    pg = read_table(spark, gold / "candidates").where(
+        (F.col("cutoff_date") == F.lit(cut.cutoff_date)) & (F.col("source") == "popular_global")
+    )
+    one = pg.select("visitor_id").limit(1).collect()[0].visitor_id
+    expected_pop = [
+        int(x.item_id)
+        for x in pg.where(F.col("visitor_id") == one)
+        .orderBy("rank")
+        .limit(cfg.serving.top_n)
+        .collect()
+    ]
+    assert [i for i, _ in store.popular(v)][: len(expected_pop)] == expected_pop
+    assert (
+        rep.rows["users"]
+        == ranked.join(warm, "visitor_id", "left_semi").select("visitor_id").distinct().count()
+    )

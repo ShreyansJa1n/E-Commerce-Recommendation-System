@@ -1,4 +1,4 @@
-# Local services. Phase 4: Qdrant. Later phases add Redis, the API, Prometheus, Grafana.
+# Local services: Qdrant (vectors), Redis (precomputed recs), the API. Phase 8 adds monitoring.
 name: recsys
 
 services:
@@ -17,5 +17,35 @@ services:
       timeout: 3s
       retries: 20
 
+  redis:
+    image: redis:8.10.2
+    command: ["redis-server", "--save", "60", "1000", "--maxmemory-policy", "noeviction"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+    image: recsys-api:local
+    ports:
+      - "8000:8000"
+    environment:
+      RECSYS_REDIS_URL: redis://redis:6379/0
+      RECSYS_QDRANT_URL: http://qdrant:6333
+    depends_on:
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+
 volumes:
   qdrant_storage:
+  redis_data:
