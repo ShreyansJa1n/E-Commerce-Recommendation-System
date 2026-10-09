@@ -20,11 +20,19 @@ time.tzset()
 def spark() -> Iterator[SparkSession]:
     session = get_spark(
         "recsys-tests",
-        SparkConfig(master="local[2]", driver_memory="1g", shuffle_partitions=2),
+        SparkConfig(master="local[2]", driver_memory="2g", shuffle_partitions=2),
         {"spark.ui.enabled": "false"},
     )
     yield session
     session.stop()
+
+
+@pytest.fixture(autouse=True, scope="module")
+def _clear_spark_cache(spark: SparkSession) -> Iterator[None]:
+    """Release cached frames after each test module so the shared session doesn't grow
+    until a broadcast no longer fits (seen in CI)."""
+    yield
+    spark.catalog.clearCache()
 
 
 def make_config(root: Path) -> Config:
