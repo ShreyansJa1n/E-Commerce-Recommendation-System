@@ -124,3 +124,30 @@ vector_search:
     seed: 7
     # hnsw_ef values swept for the recall/latency trade-off (similar_items, user_vector).
     ef_sweep: [4, 8, 16, 32, 64, 128]
+
+# LightGBM LambdaRank re-ranker (Phase 5). Train on the train cutoffs, early-stop on val,
+# report on test once. Only queries (visitors) with >= 1 positive candidate are trained on.
+ranking:
+  max_negatives_per_query: 100
+  sample_salt: ranker-negatives
+  top_n: 100
+  eval_ks: [10, 20, 100]
+  num_boost_round: 2000
+  early_stopping_rounds: 100
+  eval_at: 10
+  lgbm:
+    objective: lambdarank
+    metric: ndcg
+    learning_rate: 0.05
+    num_leaves: 63
+    min_data_in_leaf: 50
+    feature_fraction: 0.8
+    bagging_fraction: 0.8
+    bagging_freq: 1
+    lambda_l2: 1.0
+    lambdarank_truncation_level: 30
+    num_threads: 8
+    seed: 42
+    deterministic: true
+    force_row_wise: true
+    verbosity: -1

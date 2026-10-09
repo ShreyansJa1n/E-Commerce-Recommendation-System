@@ -11,6 +11,9 @@ dependencies = [
     "numpy>=1.26",
     "gensim>=4.3",
     "qdrant-client>=1.12",
+    "lightgbm>=4.5",
+    "pandas>=2.2,<3",
+    "pyarrow>=17",
 ]
 
 [dependency-groups]
@@ -21,6 +24,7 @@ dev = [
     "mypy>=1.11",
     "pre-commit>=3.7",
     "types-pyyaml",
+    "pandas-stubs>=3.0.5.260914",
 ]
 
 [build-system]

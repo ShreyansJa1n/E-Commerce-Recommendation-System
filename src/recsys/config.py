@@ -203,6 +203,17 @@ class VectorSearchConfig(BaseModel):
     benchmark: VectorBenchmarkConfig
 
 
+class RankingConfig(BaseModel):
+    max_negatives_per_query: int = Field(gt=0)
+    sample_salt: str
+    top_n: int = Field(gt=0)
+    eval_ks: list[int] = Field(min_length=1)
+    num_boost_round: int = Field(gt=0)
+    early_stopping_rounds: int = Field(gt=0)
+    eval_at: int = Field(gt=0)
+    lgbm: dict[str, Any]
+
+
 class Config(BaseModel):
     env: str
     paths: PathsConfig
@@ -215,6 +226,7 @@ class Config(BaseModel):
     candidates: CandidatesConfig
     embeddings: EmbeddingsConfig
     vector_search: VectorSearchConfig
+    ranking: RankingConfig
 
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:

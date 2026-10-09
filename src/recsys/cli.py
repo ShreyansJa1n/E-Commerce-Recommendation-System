@@ -20,6 +20,7 @@ from recsys.features import pipeline as features
 from recsys.features.contract import render_markdown
 from recsys.ingest import raw_to_bronze, sample
 from recsys.io import StageReport
+from recsys.ranking import pipeline as ranking
 from recsys.spark import get_spark
 
 Stage = Callable[[SparkSession, Config], StageReport]
@@ -30,6 +31,8 @@ STAGES: dict[str, list[Stage]] = {
     "gold": [features.run],
     "embeddings": [embeddings.run],
     "candidates": [candidates.run],
+    "ranking": [ranking.run],
+    "ranking-eval": [ranking.evaluate_ranker],
     "vectors-load": [vector_store.load],
     "vectors-bench": [vector_store.benchmark],
     "als-sweep": [sweep.run],

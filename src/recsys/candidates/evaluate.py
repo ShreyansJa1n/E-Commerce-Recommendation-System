@@ -13,7 +13,11 @@ from recsys.eval.metrics import per_user_metrics, summarize
 
 def segments() -> dict[str, Column]:
     """Visitor segments (built lazily: Column objects need an active SparkContext)."""
-    return {"all": F.lit(True), "warm": F.col("visitor_has_history")}
+    return {
+        "all": F.lit(True),
+        "warm": F.col("visitor_has_history"),
+        "cold": ~F.col("visitor_has_history"),
+    }
 
 
 def union_recall(candidates: DataFrame, truth: DataFrame, ks: Sequence[int]) -> dict[int, float]:

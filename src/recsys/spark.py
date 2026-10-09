@@ -15,6 +15,8 @@ DEFAULT_CONF: dict[str, str] = {
     "spark.sql.session.timeZone": "UTC",
     "spark.sql.sources.partitionOverwriteMode": "dynamic",
     "spark.ui.showConsoleProgress": "false",
+    # Arrow for toPandas / mapInPandas (ranker training and scoring).
+    "spark.sql.execution.arrow.pyspark.enabled": "true",
 }
 
 

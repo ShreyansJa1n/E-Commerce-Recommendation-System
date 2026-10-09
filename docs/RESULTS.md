@@ -205,7 +205,113 @@ Takeaways:
 - For carts and purchases it's weak (R@100 0.033). ALS and category popularity carry that segment.
 
 ## Ranking (Phase 5)
-_Not yet measured._
+Measured 2026-10-09, Phase 5 commit, full data. `make ranking ENV=base`: 755.82 s stage (training data build + fit + scoring val/test), 760.34 s wall. Free disk never dropped below 9 GB. The evaluation part re-runs with `make ranking-eval ENV=base` (374.2 s).
+
+**Protocol.**
+- Fit on the two train cutoffs. Early-stop on validation queries.
+- Test (cutoff 2015-09-04) was scored and evaluated once, with hyperparameters as configured. Nothing was tuned on it: no LightGBM sweep was run, and the parameters are the initial config.
+- Training queries are label-window visitors with ≥ 1 positive candidate (queries without positives give LambdaRank no gradient). Each query keeps all positives plus ≤ 100 hash-sampled negatives.
+- Validation and test are scored over **every** candidate of **every** label-window visitor. Nothing at evaluation time is filtered by labels.
+
+**Model.** LightGBM 4.7.0 LambdaRank with 65 features (per-source rank/score, user features at T, item features at T, the user's own history with the item, user × category affinity).
+- Training: 2,053,735 rows, 20,383 queries, 26,890 positive rows. Validation: 1,033,994 rows, 10,263 queries.
+- Best iteration 16 (early stopping, patience 100, lr 0.05). Fit took 15.11 s.
+- Validation NDCG@10 on the sampled queries: 0.3578 after 1 tree, 0.4389 at best.
+
+### Headline: test NDCG@10, any interaction (relevance ≥ 1), with validation for comparison
+| segment (test visitors) | ranker | blend | recent_items | popular_global | ALS | val ranker | val blend |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| all (142,838) | **0.0229** | 0.0229 | 0.0175 | 0.0051 | 0.0036 | 0.0275 | 0.0264 |
+| warm (14,839) | **0.1805** | 0.1765 | 0.1688 | 0.0046 | 0.0344 | 0.1986 | 0.1946 |
+| cold (127,999) | **0.0046** | 0.0051 | 0.0000 | 0.0051 | 0.0000 | 0.0083 | 0.0076 |
+
+### Test, all label visitors, relevance ≥ 1 (142,838 visitors)
+| model | NDCG@10 | R@10 | R@20 | R@100 | MAP@10 | HR@10 |
+|---|---:|---:|---:|---:|---:|---:|
+| **LightGBM ranker** | 0.0229 | 0.0290 | 0.0360 | 0.0577 | 0.0199 | 0.0346 |
+| blend (recent → category → global) | 0.0229 | 0.0276 | 0.0316 | 0.0560 | 0.0203 | 0.0329 |
+| `recent_items` | 0.0175 | 0.0180 | 0.0182 | 0.0182 | 0.0165 | 0.0215 |
+| `popular_category` | 0.0051 | 0.0079 | 0.0105 | 0.0178 | 0.0038 | 0.0100 |
+| `als` | 0.0036 | 0.0050 | 0.0062 | 0.0095 | 0.0028 | 0.0068 |
+| `item2vec` | 0.0009 | 0.0014 | 0.0020 | 0.0041 | 0.0006 | 0.0023 |
+| `cooccurrence` | 0.0013 | 0.0019 | 0.0024 | 0.0030 | 0.0009 | 0.0034 |
+| `popular_global` | 0.0051 | 0.0086 | 0.0119 | 0.0353 | 0.0036 | 0.0109 |
+
+### Test, warm visitors, relevance ≥ 1 (14,839 visitors)
+| model | NDCG@10 | R@10 | R@20 | R@100 | MAP@10 | HR@10 |
+|---|---:|---:|---:|---:|---:|---:|
+| **LightGBM ranker** | 0.1805 | 0.1980 | 0.2110 | 0.2543 | 0.1666 | 0.2321 |
+| blend (recent → category → global) | 0.1765 | 0.1900 | 0.2008 | 0.2381 | 0.1638 | 0.2245 |
+| `recent_items` | 0.1688 | 0.1737 | 0.1749 | 0.1756 | 0.1590 | 0.2068 |
+| `popular_category` | 0.0487 | 0.0756 | 0.1008 | 0.1713 | 0.0369 | 0.0958 |
+| `als` | 0.0344 | 0.0477 | 0.0600 | 0.0915 | 0.0272 | 0.0652 |
+| `item2vec` | 0.0083 | 0.0132 | 0.0193 | 0.0395 | 0.0055 | 0.0221 |
+| `cooccurrence` | 0.0129 | 0.0183 | 0.0227 | 0.0287 | 0.0090 | 0.0329 |
+| `popular_global` | 0.0046 | 0.0076 | 0.0116 | 0.0392 | 0.0032 | 0.0122 |
+
+### Test, cold visitors, relevance ≥ 1 (127,999 visitors)
+| model | NDCG@10 | R@10 | R@20 | R@100 | MAP@10 | HR@10 |
+|---|---:|---:|---:|---:|---:|---:|
+| **LightGBM ranker** | 0.0046 | 0.0094 | 0.0158 | 0.0349 | 0.0029 | 0.0117 |
+| blend (recent → category → global) | 0.0051 | 0.0087 | 0.0119 | 0.0349 | 0.0037 | 0.0107 |
+| `recent_items` | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 0.0000 |
+| `popular_category` | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 0.0000 |
+| `als` | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 0.0000 |
+| `item2vec` | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 0.0000 |
+| `cooccurrence` | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 0.0000 |
+| `popular_global` | 0.0051 | 0.0087 | 0.0119 | 0.0349 | 0.0037 | 0.0107 |
+
+### Test, warm visitors, add-to-cart or purchase (relevance ≥ 2, 524 visitors)
+| model | NDCG@10 | R@10 | R@20 | R@100 | MAP@10 | HR@10 |
+|---|---:|---:|---:|---:|---:|---:|
+| **LightGBM ranker** | 0.1640 | 0.1941 | 0.2148 | 0.2921 | 0.1418 | 0.2462 |
+| blend (recent → category → global) | 0.1593 | 0.1831 | 0.2042 | 0.2587 | 0.1392 | 0.2366 |
+| `recent_items` | 0.1513 | 0.1630 | 0.1724 | 0.1764 | 0.1346 | 0.2176 |
+| `popular_category` | 0.0603 | 0.0970 | 0.1280 | 0.2155 | 0.0433 | 0.1260 |
+| `als` | 0.0596 | 0.0858 | 0.1071 | 0.1656 | 0.0446 | 0.1221 |
+| `item2vec` | 0.0110 | 0.0164 | 0.0221 | 0.0494 | 0.0080 | 0.0267 |
+| `cooccurrence` | 0.0193 | 0.0338 | 0.0390 | 0.0633 | 0.0120 | 0.0553 |
+| `popular_global` | 0.0082 | 0.0150 | 0.0228 | 0.0593 | 0.0040 | 0.0344 |
+
+### Validation, warm visitors, relevance ≥ 1 (14,237 visitors)
+| model | NDCG@10 | R@10 | R@20 | R@100 | MAP@10 | HR@10 |
+|---|---:|---:|---:|---:|---:|---:|
+| **LightGBM ranker** | 0.1986 | 0.2176 | 0.2339 | 0.2800 | 0.1834 | 0.2560 |
+| blend (recent → category → global) | 0.1946 | 0.2095 | 0.2218 | 0.2611 | 0.1807 | 0.2477 |
+| `recent_items` | 0.1869 | 0.1924 | 0.1935 | 0.1943 | 0.1762 | 0.2284 |
+| `popular_category` | 0.0515 | 0.0815 | 0.1098 | 0.1876 | 0.0386 | 0.1029 |
+| `als` | 0.0367 | 0.0527 | 0.0663 | 0.1022 | 0.0280 | 0.0733 |
+| `item2vec` | 0.0085 | 0.0135 | 0.0190 | 0.0434 | 0.0056 | 0.0236 |
+| `cooccurrence` | 0.0136 | 0.0195 | 0.0245 | 0.0322 | 0.0096 | 0.0348 |
+| `popular_global` | 0.0049 | 0.0079 | 0.0128 | 0.0316 | 0.0036 | 0.0130 |
+
+### Feature importance (gain, best iteration)
+| # | feature | gain share | splits |
+|---:|---|---:|---:|
+| 1 | `src_recent_items_rank` | 39.0% | 49 |
+| 2 | `src_recent_items_score` | 11.5% | 8 |
+| 3 | `u_n_categories_30d` | 7.6% | 13 |
+| 4 | `src_popular_global_rank` | 4.7% | 66 |
+| 5 | `src_popular_global_score` | 4.6% | 26 |
+| 6 | `src_n_sources` | 3.9% | 15 |
+| 7 | `src_cooccurrence_rank` | 2.9% | 42 |
+| 8 | `u_n_distinct_items_7d` | 2.2% | 6 |
+| 9 | `i_days_since_first_event` | 2.1% | 92 |
+| 10 | `i_purchase_rate_30d` | 1.8% | 22 |
+| 11 | `i_n_visitors_7d` | 1.7% | 44 |
+| 12 | `i_popularity_rank_7d` | 1.7% | 35 |
+| 13 | `i_n_views_7d` | 1.5% | 36 |
+| 14 | `u_n_transactions_7d` | 1.3% | 1 |
+| 15 | `src_popular_category_rank` | 1.3% | 18 |
+
+**Outcome against the done condition:** on test NDCG@10, the ranker beats popularity (0.0229 vs 0.0051, all visitors) and ALS (0.0036 all / 0.0344 warm) by a wide margin. It also beats the best single source (`recent_items`, 0.0175 all / 0.1688 warm).
+
+**Where it doesn't win, and why:**
+- **Against the hand-written blend, the gain is small.** Warm test NDCG@10 is +0.0040 (0.1805 vs 0.1765) and R@100 is +0.016. Across all visitors it's a tie (0.0229 vs 0.0229), and slightly behind on relevance ≥ 2 (0.0318 vs 0.0320). Whether these differences are significant is Phase 6's bootstrap.
+- **Cold visitors (90%): the ranker loses on test** (0.0046 vs 0.0051 for popularity order, the blend's cold ranking) even though it wins on validation (0.0083 vs 0.0076). For cold visitors it can only reorder the global-popularity list using item features, and that reordering didn't transfer from August to September.
+- **Early stopping at iteration 16** with recent-items rank/score taking about half the gain: the model mostly learns "re-surface the user's own recent items, then use popularity signals", which the blend already encodes.
+
+**Next iterations (not done here, chosen on validation only):** a LightGBM sweep (leaves, min_data_in_leaf, lr) on validation; a cold-visitor policy (popularity order vs ranker) chosen on validation once Phase 6 gives confidence intervals; features that the blend lacks for cold visitors (category trends, item recency); more training cutoffs.
 
 ## Offline evaluation (Phase 6)
 _Not yet measured._

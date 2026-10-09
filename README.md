@@ -16,14 +16,15 @@ architecture decisions, and [docs/RESULTS.md](docs/RESULTS.md) for measured resu
 | 2 | Feature engineering (silver → gold) | done |
 | 3 | Candidate generation | done |
 | 4 | Embeddings and vector search | done |
-| 5 | Ranking | not started |
+| 5 | Ranking | done |
+| 6 | Offline evaluation and experiment simulation | not started |
 
 ## Prerequisites
 
 - [uv](https://docs.astral.sh/uv/) (installs Python 3.12 automatically)
 - Java 17 or 21 on `PATH` (Spark 4.0 requires Java 17+)
 - Docker (OrbStack or Docker Desktop) for Qdrant: `make up`
-- macOS only, for later phases: `brew install libomp` (LightGBM)
+- macOS only: `brew install libomp` (LightGBM)
 
 ## Quickstart
 
@@ -46,6 +47,8 @@ make data              # raw -> bronze -> silver -> gold -> candidates on the sa
 make data ENV=base     # same on the full dataset
 make als-sweep ENV=base  # ALS hyperparameter sweep on the validation cutoff
 make candidates ENV=base SOURCES=item2vec   # rebuild one source, keep the others
+make ranking ENV=base  # LambdaRank re-ranker: train, score val/test, compare to baselines
+make ranking-eval ENV=base  # re-evaluate without retraining
 make up                # start Qdrant (docker compose)
 make vectors-load ENV=base && make vectors-bench ENV=base   # Qdrant vs exact search
 make contract          # regenerate docs/feature_contract.md
@@ -67,6 +70,9 @@ make contract          # regenerate docs/feature_contract.md
 | gold | `labels` | Future interactions in `[T, label_end)` with graded relevance and cold/repeat flags |
 | gold | `candidates` | Top-100 per visitor per source (`popular_global`, `popular_category`, `recent_items`, `cooccurrence`, `als`, `item2vec`), partitioned by `cutoff_date`/`source` (ADR-008) |
 | gold | `item_neighbors` | Session co-occurrence neighbors (cosine) per item and cutoff |
+| gold | `ranking_train` | Sampled LambdaRank training/early-stopping examples (train + val cutoffs) |
+| gold | `models/ranker` | LightGBM model (`model.txt`) and metadata (features, best iteration, params) |
+| gold | `ranked` | Ranker top-100 per visitor for val and test (ADR-010) |
 | gold | `item_embeddings` | item2vec vectors (64-d, L2-normalized) per item and cutoff (ADR-009) |
 | Qdrant | `items_<cutoff>` | The benchmark cutoff's vectors + category/availability payload for similar-item and user-vector search |
 

@@ -14,6 +14,7 @@ from recsys.features import contract
 from recsys.features import pipeline as features
 from recsys.ingest import raw_to_bronze, sample
 from recsys.io import read_table
+from recsys.ranking import pipeline as ranking
 from tests.conftest import make_config
 from tests.fixtures.synth import SynthStats
 
@@ -27,6 +28,7 @@ def built(spark: SparkSession, synth_env: tuple[Config, SynthStats]) -> tuple[Co
     features.run(spark, cfg)
     embeddings.run(spark, cfg)
     candidates.run(spark, cfg)
+    ranking.run(spark, cfg)
     return cfg, stats
 
 
@@ -258,3 +260,31 @@ def test_rebuilding_a_source_subset_keeps_the_others(
     assert ablation and all(
         r["union_recall_without"] <= r["union_recall"] + 1e-12 for r in ablation
     )
+
+
+def test_ranker_trained_and_evaluated(
+    spark: SparkSession, built: tuple[Config, SynthStats]
+) -> None:
+    cfg, _ = built
+    gold = cfg.paths.resolved().gold
+    meta = json.loads((gold / "models" / "ranker" / "meta.json").read_text())
+    assert meta["best_iteration"] >= 1 and meta["features"]
+    assert not {"label", "visitor_id", "item_id", "i_category_id"} & set(meta["features"])
+    ranked = read_table(spark, gold / "ranked")
+    assert {r.split for r in ranked.select("split").distinct().collect()} == {"val", "test"}
+    assert ranked.where(F.col("rank") > cfg.ranking.top_n).count() == 0
+    # Every label-window visitor at val/test is scored (no label-based filtering).
+    labels = read_table(spark, gold / "labels").where(F.col("split").isin("val", "test"))
+    cands = read_table(spark, gold / "candidates").where(F.col("split").isin("val", "test"))
+    with_cands = cands.select("cutoff_date", "visitor_id").distinct()
+    assert ranked.select("cutoff_date", "visitor_id").distinct().count() == with_cands.count()
+    assert (
+        labels.select("cutoff_date", "visitor_id")
+        .distinct()
+        .join(with_cands, ["cutoff_date", "visitor_id"], "left_anti")
+        .count()
+        == 0
+    )
+    metrics = json.loads((gold / "_reports" / "ranking_metrics.json").read_text())
+    assert {"ranker", "blend"} <= {m["source"] for m in metrics}
+    assert {m["split"] for m in metrics} == {"val", "test"}

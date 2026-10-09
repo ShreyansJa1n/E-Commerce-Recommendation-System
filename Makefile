@@ -2,7 +2,7 @@
 UV ?= uv
 ENV ?= sample
 
-.PHONY: help setup lint format typecheck test check sample bronze silver gold embeddings candidates als-sweep up down vectors-load vectors-bench data contract clean
+.PHONY: help setup lint format typecheck test check sample bronze silver gold embeddings candidates ranking ranking-eval als-sweep up down vectors-load vectors-bench data contract clean
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-12s %s\n", $$1, $$2}'
@@ -48,6 +48,12 @@ embeddings: ## item2vec embeddings per cutoff (ENV=sample|base)
 candidates: ## Candidate sources per cutoff + validation metrics (ENV=, SOURCES=a,b to rebuild a subset)
 	$(RUN) candidates --env $(ENV) $(if $(SOURCES),--sources $(SOURCES))
 
+ranking: ## Train the LambdaRank re-ranker, score val/test, compare to baselines (ENV=)
+	$(RUN) ranking --env $(ENV)
+
+ranking-eval: ## Re-evaluate the scored ranker vs baselines without retraining (ENV=)
+	$(RUN) ranking-eval --env $(ENV)
+
 up: ## Start local services (docker compose)
 	docker compose up -d --wait
 
@@ -63,7 +69,7 @@ vectors-bench: ## Qdrant vs exact search: recall@k and latency (needs `make vect
 als-sweep: ## ALS hyperparameter sweep on the validation cutoff (ENV=sample|base)
 	$(RUN) als-sweep --env $(ENV)
 
-data: bronze silver gold embeddings candidates ## Raw -> candidates end to end
+data: bronze silver gold embeddings candidates ranking ## Raw -> ranker end to end
 
 contract: ## Regenerate docs/feature_contract.md from the contract specs
 	$(RUN) contract
