@@ -214,6 +214,21 @@ class RankingConfig(BaseModel):
     lgbm: dict[str, Any]
 
 
+class EvaluationConfig(BaseModel):
+    split: str
+    ks: list[int] = Field(min_length=1)
+    policies: list[str] = Field(min_length=1)
+    comparisons: list[tuple[str, str]]
+    primary_metric: str
+    secondary_metrics: list[str]
+    bootstrap_samples: int = Field(gt=0)
+    confidence: float = Field(gt=0, lt=1)
+    seed: int
+    ab_salt: str
+    figures_dir: Path
+    report_path: Path
+
+
 class Config(BaseModel):
     env: str
     paths: PathsConfig
@@ -227,6 +242,7 @@ class Config(BaseModel):
     embeddings: EmbeddingsConfig
     vector_search: VectorSearchConfig
     ranking: RankingConfig
+    evaluation: EvaluationConfig
 
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:

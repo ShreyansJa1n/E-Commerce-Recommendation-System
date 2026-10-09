@@ -16,6 +16,7 @@ from recsys.clean import catalog, events
 from recsys.config import REPO_ROOT, Config, load_config
 from recsys.embeddings import pipeline as embeddings
 from recsys.embeddings import vector_store
+from recsys.eval import offline as evaluation
 from recsys.features import pipeline as features
 from recsys.features.contract import render_markdown
 from recsys.ingest import raw_to_bronze, sample
@@ -33,6 +34,7 @@ STAGES: dict[str, list[Stage]] = {
     "candidates": [candidates.run],
     "ranking": [ranking.run],
     "ranking-eval": [ranking.evaluate_ranker],
+    "eval": [evaluation.run],
     "vectors-load": [vector_store.load],
     "vectors-bench": [vector_store.benchmark],
     "als-sweep": [sweep.run],

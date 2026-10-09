@@ -314,7 +314,29 @@ Measured 2026-10-09, Phase 5 commit, full data. `make ranking ENV=base`: 755.82 
 **Next iterations (not done here, chosen on validation only):** a LightGBM sweep (leaves, min_data_in_leaf, lr) on validation; a cold-visitor policy (popularity order vs ranker) chosen on validation once Phase 6 gives confidence intervals; features that the blend lacks for cold visitors (category trends, item recency); more training cutoffs.
 
 ## Offline evaluation (Phase 6)
-_Not yet measured._
+Measured 2026-10-09, Phase 6 commit, full data, **test** split. `make eval ENV=base`: 118.88 s stage time, 122.61 s wall. It regenerates [EVAL_REPORT.md](EVAL_REPORT.md) and `docs/figures/*.png`. Bootstrap: 2,000 resamples, 95% percentile intervals, seed 2026. Full write-up: [EXPERIMENT.md](EXPERIMENT.md).
+
+| ranker vs | segment | paired NDCG@10 lift (95% CI) | sig. | simulated 50/50 A/B lift (95% CI) | sig. |
+|---|---|---|---|---|---|
+| blend | all | -0.0% [-0.6%, +0.7%] | no | +2.4% [-3.5%, +8.4%] | no |
+| blend | warm | +2.3% [+1.8%, +2.7%] | yes | +5.6% [-1.0%, +12.7%] | no |
+| blend | cold | -9.1% [-11.5%, -6.6%] | yes | -6.9% [-17.8%, +4.4%] | no |
+| popular_global | all | +353.1% [+329.7%, +377.6%] | yes | +356.7% [+319.3%, +400.1%] | yes |
+| popular_global | warm | +3820.7% [+3189.0%, +4609.3%] | yes | +3157.5% [+2512.9%, +4068.6%] | yes |
+| popular_global | cold | -9.1% [-11.5%, -6.6%] | yes | -6.9% [-17.8%, +4.4%] | no |
+| als | all | +540.8% [+497.8%, +587.3%] | yes | +590.2% [+517.2%, +677.1%] | yes |
+| als | warm | +424.5% [+389.5%, +461.2%] | yes | +470.6% [+411.9%, +541.5%] | yes |
+| als | cold | n/a [n/a, n/a] | yes | n/a [n/a, n/a] | yes |
+| recent_items | all | +30.6% [+28.9%, +32.5%] | yes | +33.4% [+24.7%, +42.3%] | yes |
+| recent_items | warm | +6.9% [+6.3%, +7.6%] | yes | +10.3% [+3.2%, +17.8%] | yes |
+| recent_items | cold | n/a [n/a, n/a] | yes | n/a [n/a, n/a] | yes |
+
+- **A/B power:** for returning visitors, the simulated A/B difference has SE ≈ 0.0059 NDCG@10 (~7,429 per arm). The minimum detectable effect at 80% power / α = 0.05 is ≈ 9% relative, so the measured +2.3% needs ≈ 17× the sample.
+- **Beyond accuracy (top-10):** ranker coverage 6.72% (31,179 items), diversity 0.919, novelty 10.45 bits. For the blend: 6.08%, 0.862, 10.73. item2vec is the most novel source (16.56 bits) and has the widest coverage (7.29%).
+
+![NDCG@10 by policy](figures/ndcg_by_policy.png)
+![Ranker vs baselines](figures/lift_forest.png)
+![Recall@K](figures/recall_at_k.png)
 
 ## Serving load test (Phase 7)
 _Not yet measured._

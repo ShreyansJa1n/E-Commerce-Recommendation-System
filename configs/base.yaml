@@ -151,3 +151,23 @@ ranking:
     deterministic: true
     force_row_wise: true
     verbosity: -1
+
+# Offline evaluation & experiment simulation (Phase 6): `make eval`.
+evaluation:
+  split: test
+  ks: [10, 20, 100]
+  policies: [ranker, blend, recent_items, popular_category, als, item2vec, cooccurrence, popular_global]
+  # (control, treatment) pairs compared with paired + simulated-A/B bootstrap.
+  comparisons:
+    - [blend, ranker]
+    - [popular_global, ranker]
+    - [als, ranker]
+    - [recent_items, ranker]
+  primary_metric: ndcg_at_10
+  secondary_metrics: [recall_at_20, hit_rate_at_10]
+  bootstrap_samples: 2000
+  confidence: 0.95
+  seed: 2026
+  ab_salt: ab-sim-2026-10
+  figures_dir: docs/figures
+  report_path: docs/EVAL_REPORT.md

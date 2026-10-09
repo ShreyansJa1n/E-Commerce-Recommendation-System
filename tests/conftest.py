@@ -40,6 +40,9 @@ def make_config(root: Path) -> Config:
         "end": "2015-05-31",
         "label_horizon_days": 7,
     }
+    # Never let tests write evaluation output into docs/.
+    data["evaluation"]["figures_dir"] = str(root / "eval" / "figures")
+    data["evaluation"]["report_path"] = str(root / "eval" / "EVAL_REPORT.md")
     return Config.model_validate(data)
 
 

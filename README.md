@@ -17,7 +17,8 @@ architecture decisions, and [docs/RESULTS.md](docs/RESULTS.md) for measured resu
 | 3 | Candidate generation | done |
 | 4 | Embeddings and vector search | done |
 | 5 | Ranking | done |
-| 6 | Offline evaluation and experiment simulation | not started |
+| 6 | Offline evaluation and experiment simulation | done |
+| 7 | Serving layer | not started |
 
 ## Prerequisites
 
@@ -49,6 +50,7 @@ make als-sweep ENV=base  # ALS hyperparameter sweep on the validation cutoff
 make candidates ENV=base SOURCES=item2vec   # rebuild one source, keep the others
 make ranking ENV=base  # LambdaRank re-ranker: train, score val/test, compare to baselines
 make ranking-eval ENV=base  # re-evaluate without retraining
+make eval ENV=base     # bootstrap / simulated A/B comparisons, figures, docs/EVAL_REPORT.md
 make up                # start Qdrant (docker compose)
 make vectors-load ENV=base && make vectors-bench ENV=base   # Qdrant vs exact search
 make contract          # regenerate docs/feature_contract.md

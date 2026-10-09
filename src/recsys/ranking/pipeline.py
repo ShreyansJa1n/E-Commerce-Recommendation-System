@@ -108,9 +108,11 @@ def run(spark: SparkSession, cfg: Config) -> StageReport:
         for cut in [c for c in cuts if c.split in ("val", "test")]:
             scored = model.score(
                 _examples(spark, cfg, cut), model_str, features, ranker.best_iteration
-            )
+            ).select(*dataset.KEYS, "ranker_score")  # keep the top-n shuffle narrow
+            # The partition directory carries cutoff_date; the files must not repeat it.
             write_table(
-                model.top_n(scored, rc.top_n), gold / "ranked" / f"cutoff_date={cut.cutoff_date}"
+                model.top_n(scored, rc.top_n).drop("cutoff_date"),
+                gold / "ranked" / f"cutoff_date={cut.cutoff_date}",
             )
 
         report.rows = {

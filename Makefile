@@ -2,7 +2,7 @@
 UV ?= uv
 ENV ?= sample
 
-.PHONY: help setup lint format typecheck test check sample bronze silver gold embeddings candidates ranking ranking-eval als-sweep up down vectors-load vectors-bench data contract clean
+.PHONY: help setup lint format typecheck test check sample bronze silver gold embeddings candidates ranking ranking-eval eval als-sweep up down vectors-load vectors-bench data contract clean
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-12s %s\n", $$1, $$2}'
@@ -53,6 +53,9 @@ ranking: ## Train the LambdaRank re-ranker, score val/test, compare to baselines
 
 ranking-eval: ## Re-evaluate the scored ranker vs baselines without retraining (ENV=)
 	$(RUN) ranking-eval --env $(ENV)
+
+eval: ## Offline evaluation: metrics, bootstrap/A-B comparisons, figures, report (ENV=)
+	$(RUN) eval --env $(ENV)
 
 up: ## Start local services (docker compose)
 	docker compose up -d --wait

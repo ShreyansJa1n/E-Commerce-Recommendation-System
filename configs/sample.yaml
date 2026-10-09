@@ -11,3 +11,8 @@ spark:
 
 vector_search:
   collection_prefix: items_sample
+
+# Keep sample evaluation output out of docs/ (docs hold full-data results only).
+evaluation:
+  figures_dir: data/sample/eval/figures
+  report_path: data/sample/eval/EVAL_REPORT.md

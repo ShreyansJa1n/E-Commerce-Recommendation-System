@@ -93,9 +93,7 @@ def leave_one_out(
     rows: list[dict[str, Any]] = []
     for segment, cond in segments().items():
         truth = lab.where(cond)
-        full = union_recall(
-            cands.join(truth.select("visitor_id").distinct(), "visitor_id", "left_semi"), truth, ks
-        )
+        full = union_recall(cands, truth, ks)
         for source in sources:
             rest = cands.where(F.col("source") != source)
             without = union_recall(rest, truth, ks)
